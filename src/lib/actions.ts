@@ -7,7 +7,7 @@ import { COOKIE, makeToken } from "./session";
 import { DEFAULTS, getSettings, setSetting, type Key } from "./settings";
 import { baseUrl } from "./apify";
 import { learnTags, startDiscovery, startProfiles } from "./sourcing";
-import { ensureCampaign, hookToken, listAccounts, registerWebhook, removeLead, replyByEmail, setupMailboxes, snapshotExisting, inst } from "./instantly";
+import { activeArms, pushLeads, ensureCampaign, hookToken, listAccounts, registerWebhook, removeLead, replyByEmail, setupMailboxes, snapshotExisting, inst } from "./instantly";
 import { draftFor, handleReply, LABELS, sendDraft } from "./replies";
 import { importExisting, importPromyCsv, promyEvent } from "./promy";
 import { tick, tickToken } from "./tick";
@@ -91,6 +91,36 @@ export async function connectAll(f: FormData) {
 }
 export async function runTick() { await requireSession(); const r = await tick(); await log("tick_manual", `Запуск вручную: ${JSON.stringify(r).slice(0, 300)}`); redirect(`/settings?msg=${encodeURIComponent(JSON.stringify(r, null, 1).slice(0, 1500))}`); }
 export async function refreshSnapshot() { await requireSession(); await snapshotExisting(); redirect("/tests"); }
+
+// ---- Launch / pause ----
+// One button: checks what's missing, sets today's start, sends the first batch to Instantly and makes sure a search is running.
+export async function startOutreach() {
+  const who = await requireSession();
+  const s = await getSettings();
+  const missing = [!s.instantly_key && "ключ Instantly", !s.apify_key && "ключ Apify", !s.openai_key && "ключ OpenAI", !s.senders.length && "ящики (Настройки → Отправка)"].filter(Boolean);
+  if (missing.length) redirect(`/?msg=${encodeURIComponent(`Не хватает: ${missing.join(", ")}`)}`);
+  if (!s.cron_url) await setSetting("cron_url", `${baseUrl()}/api/cron?token=${tickToken()}`);
+  await setSetting("send_start", new Date().toISOString().slice(0, 10));
+  const out: string[] = [];
+  try {
+    const arms = await activeArms();
+    for (const a of arms) { const id = a.inst_campaign_id ?? (await ensureCampaign(a.id)); await inst(`/api/v2/campaigns/${id}/activate`, { method: "POST", body: "{}" }).catch(() => undefined); }
+    const r = await pushLeads();
+    out.push("added" in r ? `Отправлено в Instantly: ${r.added}${r.skipped ? `, пропущено ${r.skipped} (уже были в Instantly)` : ""}` : `Пока никого не отправили: ${r.skipped}`);
+  } catch (e) { out.push(`Instantly: ${String(e).slice(0, 200)}`); }
+  const { count: running } = await db.from("runs").select("id", { count: "exact", head: true }).eq("status", "running");
+  if (!running) for (const p of s.platforms as ("tiktok" | "instagram")[]) { const r = await startDiscovery(p, s).catch((e) => ({ skipped: String(e).slice(0, 120) })); out.push(`Поиск ${p}: ${"started" in r ? "запущен" : r.skipped}`); }
+  await log("outreach_on", `Аутрич запущен. ${out.join(" · ")}`, null, null, who);
+  redirect(`/?msg=${encodeURIComponent(`Аутрич запущен. ${out.join(". ")}. Дальше всё идёт само каждые 5 минут: поиск, отправка новой порции, ответы.`)}`);
+}
+export async function pauseOutreach() {
+  const who = await requireSession();
+  await setSetting("send_start", "");
+  const { data: arms } = await db.from("arms").select("inst_campaign_id").not("inst_campaign_id", "is", null);
+  for (const a of arms ?? []) await inst(`/api/v2/campaigns/${a.inst_campaign_id}/pause`, { method: "POST", body: "{}" }).catch(() => undefined);
+  await log("outreach_off", "Аутрич на паузе: кампании в Instantly остановлены, новые креаторы не отправляются", null, null, who);
+  redirect(`/?msg=${encodeURIComponent("Аутрич на паузе. Письма в Instantly остановлены, поиск и проверка продолжают работать. Ответы на уже пришедшие письма можно отправлять.")}`);
+}
 
 // ---- Sourcing ----
 export async function addQuery(f: FormData) {

@@ -5,7 +5,7 @@ export const showPct = (a: number, b: number, digits = 1) => { const p = pct(a, 
 export const n = (v?: number | null) => (v === null || v === undefined ? "—" : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e4 ? `${Math.round(v / 1e3)}K` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : String(v));
 export function ago(d?: string | null) {
   if (!d) return "—"; const h = (Date.now() - new Date(d).getTime()) / 36e5;
-  if (h < 1) return "только что"; if (h < 24) return `${Math.floor(h)} ч назад`; const days = Math.floor(h / 24); return days === 1 ? "вчера" : days < 30 ? `${days} дн назад` : fmt(d);
+  if (h < 1 / 60) return "только что"; if (h < 1) return `${Math.floor(h * 60)} мин назад`; if (h < 24) return `${Math.floor(h)} ч назад`; const days = Math.floor(h / 24); return days === 1 ? "вчера" : days < 30 ? `${days} дн назад` : fmt(d);
 }
 export const todayWarsaw = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Warsaw" }).format(new Date());
 // Period filter shared by the dashboards.

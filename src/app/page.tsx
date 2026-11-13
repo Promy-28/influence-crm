@@ -2,7 +2,8 @@ import { all, db } from "@/lib/db";
 import { getSettings, dailyNew } from "@/lib/settings";
 import { pipelineState, monthSpend } from "@/lib/sourcing";
 import { range, showPct, ago, fmtTime } from "@/lib/format";
-import { Filters } from "@/components/ui";
+import { Filters, Submit } from "@/components/ui";
+import { pauseOutreach, startOutreach } from "@/lib/actions";
 import { Bars, Funnel } from "@/components/Charts";
 
 type Row = { first_sent_at: string | null; opened_at: string | null; replied_at: string | null; positive_at: string | null; registered_at: string | null; profile_done_at: string | null; first_video_at: string | null; reply_label: string | null; bounced_at: string | null };
@@ -27,7 +28,7 @@ function Delta({ now, before, pctPoints }: { now: number | null; before: number 
   return <span className={`delta ${d > 0 ? "up" : "down"}`}>{d > 0 ? "▲" : "▼"} {Math.abs(d).toFixed(1)}{pctPoints ? " п.п." : "%"}</span>;
 }
 
-export default async function Dashboard({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string }> }) {
+export default async function Dashboard({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string; msg?: string }> }) {
   const sp = await searchParams; const r = range(sp);
   const len = new Date(r.to).getTime() - new Date(r.from).getTime();
   const prevFrom = new Date(new Date(r.from).getTime() - len).toISOString().slice(0, 10);
@@ -43,7 +44,6 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
 
   const warn: string[] = [];
   if (!s.instantly_key || !s.apify_key || !s.openai_key) warn.push("Не все ключи введены: Настройки → Ключи");
-  if (!s.send_start) warn.push("Не задана дата старта отправки: письма не уходят (Настройки → Отправка)");
   if (!s.cron_url) warn.push("Автозапуск не подключён: Настройки → «Подключить всё»");
   else if (!s.last_tick_at || Date.now() - new Date(s.last_tick_at).getTime() > 20 * 6e4) warn.push(`Автоматика давно не запускалась (последний раз ${s.last_tick_at ? ago(s.last_tick_at) : "никогда"}). Проверь pg_cron в Supabase.`);
   if (pipe.daysCovered < 1 && s.send_start) warn.push(`Одобренных креаторов меньше чем на день отправки. Зайди в Проверку: там ${pipe.pending}.`);
@@ -54,6 +54,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     <div className="row" style={{ alignItems: "flex-end" }}><div><h1>Дашборд</h1><p className="sub">Ставки считаются по креаторам, которым первое письмо ушло за период. Регистрации, профили и видео — по дате события. {cmp && "Стрелка сравнивает с прошлым таким же периодом."}</p></div></div>
     <Filters><select className="in" name="period" defaultValue={sp.period ?? "30"}><option value="today">Сегодня</option><option value="7">7 дней</option><option value="30">30 дней</option><option value="90">90 дней</option><option value="all">Всё время</option><option value="custom">Свои даты</option></select>
       {sp.period === "custom" && <><input className="in" type="date" name="from" defaultValue={sp.from} aria-label="С" /><input className="in" type="date" name="to" defaultValue={sp.to} aria-label="По" /></>}</Filters>
+    {sp.msg && <div className="okbox">{sp.msg}</div>}
+    {(() => { const on = !!s.send_start && s.send_start <= new Date().toISOString().slice(0, 10); const later = !!s.send_start && !on;
+      return <section className="panel" style={{ padding: 18, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", ...(on ? { background: "#f9fdf0", borderColor: "#dcefae" } : {}) }}>
+        <div style={{ flex: 1, minWidth: 260 }}><div className="row"><h2 style={{ fontSize: 20 }}>Аутрич {on ? "работает" : later ? `стартует ${s.send_start}` : "выключен"}</h2>{on && <span className="tag lime">идёт</span>}</div>
+          <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>{on ? `Каждые 5 минут тула ищет креаторов, отправляет в Instantly до ${dailyNew(s)} новых в день из одобренных и разбирает ответы. Сейчас готово к отправке: ${pipe.ready}.` : `По кнопке: включатся кампании в Instantly, уйдёт первая порция одобренных креаторов (готово ${pipe.ready}), запустится поиск. Дальше всё само.`}</p></div>
+        {on ? <form action={pauseOutreach}><Submit>Поставить на паузу</Submit></form> : <form action={startOutreach}><Submit className="btn-p big-btn">Запустить аутрич</Submit></form>}
+      </section>; })()}
     {warn.map((w) => <div key={w} className="note">{w}</div>)}
 
     <div className="kpis">
