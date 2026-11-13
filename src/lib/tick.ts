@@ -32,14 +32,20 @@ export async function tick() {
 
   if (s.apify_key) {
     await step("discover", async () => {
+      if (s.search_mode === "off") return "поиск только вручную";
+      const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Warsaw", weekday: "short" }).format(new Date()));
+      const weekly = s.search_mode === "weekly";
+      if (weekly && weekday !== Number(s.search_weekday)) return "поиск раз в неделю, сегодня не день поиска";
       const st = await pipelineState(s);
-      if (st.daysCovered >= s.review_buffer_days || st.inQueue > s.profile_batch * 2) return { enough: Math.round(st.daysCovered * 10) / 10 };
+      // Weekly: gather a whole week of sending in one day. Auto: keep a small buffer.
+      const target = weekly ? (s.send_weekends ? 7 : 5) + 1 : s.review_buffer_days;
+      if (st.daysCovered >= target || st.inQueue > s.profile_batch * 2) return { enough: Math.round(st.daysCovered * 10) / 10, target };
       const { data: running } = await db.from("runs").select("platform").eq("status", "running").eq("stage", "discover");
       const busy = new Set((running ?? []).map((r) => r.platform));
       const { data: last } = await db.from("runs").select("platform").eq("stage", "discover").order("started_at", { ascending: false }).limit(1).maybeSingle();
       const order = s.platforms.filter((p) => !busy.has(p)) as ("tiktok" | "instagram")[];
       if (order.length > 1 && order[0] === last?.platform) order.push(order.shift()!);
-      return order[0] ? startDiscovery(order[0], s) : "уже идёт";
+      return order[0] ? startDiscovery(order[0], s, { gapMin: weekly ? 30 : 90 }) : "уже идёт";
     });
     await step("profiles", async () => {
       const res: Record<string, unknown> = {};

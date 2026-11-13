@@ -16,7 +16,7 @@ export default async function Sourcing({ searchParams }: { searchParams: Promise
   const list = (qs ?? []) as Q[];
   const seeds = list.filter((q) => q.kind === "profile"), searches = list.filter((q) => q.kind !== "profile");
   return <div className="flex flex-col gap-4">
-    <div><h1>Поиск креаторов</h1><p className="sub">Автоматика сама запускает поиск, когда одобренных креаторов меньше чем на {s.review_buffer_days} дн. отправки. Сначала дешёвый поиск по хэштегам, потом проверка профиля только у тех, у кого в описании UGC и почта или ссылка. Хэштеги, которые используют одобренные тобой креаторы, добавляются сами.</p></div>
+    <div><h1>Поиск креаторов</h1><p className="sub">{s.search_mode === "weekly" ? `Поиск идёт раз в неделю (${["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"][s.search_weekday]}): тула ищет, пока не наберёт креаторов на неделю писем.` : s.search_mode === "off" ? "Автоматический поиск выключен, только кнопкой." : `Автоматика сама запускает поиск, когда одобренных креаторов меньше чем на ${s.review_buffer_days} дн. отправки.`} Сначала дешёвый поиск по хэштегам, потом проверка профиля только у тех, у кого в описании UGC и почта или ссылка. Хэштеги, которые используют одобренные тобой креаторы, добавляются сами.</p></div>
     {sp.msg && <div className="okbox">{sp.msg}</div>}
     <div className="grid-c">
       <div className="panel stat"><div className="muted">Apify за месяц</div><div className="v">${spend.toFixed(2)}</div><div className="bar"><i style={{ width: `${Math.min(100, (spend / s.apify_month_budget) * 100)}%` }} /></div><div className="muted" style={{ fontSize: 12, marginTop: 4 }}>лимит ${s.apify_month_budget}</div></div>

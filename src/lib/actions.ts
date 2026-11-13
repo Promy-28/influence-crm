@@ -56,7 +56,7 @@ export async function approveAll(f: FormData) {
 export async function decideForm(f: FormData) { await decide(S(f, "id"), S(f, "decision") as "approved" | "rejected" | "pending", S(f, "reason") || undefined); back(f, "/review"); }
 
 // ---- Settings ----
-const NUM: Key[] = ["results_per_query", "queries_per_run", "profile_batch", "apify_month_budget", "fresh_days", "max_followers", "min_followers", "auto_approve_score", "auto_reject_score", "review_buffer_days", "mailbox_daily", "emails_per_lead", "daily_new_override", "min_arm_share", "bounce_pause_pct", "autopilot_min_conf", "autopilot_delay_min"];
+const NUM: Key[] = ["search_weekday", "results_per_query", "queries_per_run", "profile_batch", "apify_month_budget", "fresh_days", "max_followers", "min_followers", "auto_approve_score", "auto_reject_score", "review_buffer_days", "mailbox_daily", "emails_per_lead", "daily_new_override", "min_arm_share", "bounce_pause_pct", "autopilot_min_conf", "autopilot_delay_min"];
 const BOOL: Key[] = ["require_ugc_in_bio", "us_only", "english_only", "auto_approve", "open_tracking", "send_weekends", "autopilot"];
 const LIST: Key[] = ["platforms", "senders", "autopilot_labels"];
 export async function saveSettings(f: FormData) {

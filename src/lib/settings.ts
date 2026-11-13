@@ -13,6 +13,8 @@ export const DEFAULTS = {
   us_only: true, english_only: true,
   auto_approve: false, auto_approve_score: 85, auto_reject_score: 25,
   review_buffer_days: 3,
+  // "weekly": one big search on search_weekday (1 = Monday) for a week of sending; "auto": whenever the buffer runs low; "off": only by hand.
+  search_mode: "weekly", search_weekday: 1,
   // Sending
   senders: [] as string[], mailbox_daily: 30, emails_per_lead: 2.6, daily_new_override: 0,
   send_start: "", schedule_tz: "America/Chicago", schedule_from: "09:00", schedule_to: "17:00", send_weekends: false,

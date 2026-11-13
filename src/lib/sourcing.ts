@@ -27,14 +27,15 @@ async function pickQueries(platform: string, n: number) {
   return rows.sort((a, b) => score(b) - score(a)).slice(0, n);
 }
 
-export async function startDiscovery(platform: "tiktok" | "instagram", s?: Settings, opts: { queryIds?: string[]; manual?: boolean } = {}) {
+export async function startDiscovery(platform: "tiktok" | "instagram", s?: Settings, opts: { queryIds?: string[]; manual?: boolean; gapMin?: number } = {}) {
   s = s ?? (await getSettings());
   const spent = await monthSpend();
   if (spent >= s.apify_month_budget) return { skipped: `бюджет Apify на месяц исчерпан ($${spent.toFixed(2)})` };
-  // At most one search per platform every 90 minutes unless started by hand: each run costs ~$0.5.
+  // Automatic searches keep a gap per platform (90 min, 30 on the weekly search day): each run costs ~$0.5.
   if (!opts.queryIds?.length && !opts.manual) {
     const { data: last } = await db.from("runs").select("started_at").eq("platform", platform).eq("stage", "discover").order("started_at", { ascending: false }).limit(1).maybeSingle();
-    if (last && Date.now() - new Date(last.started_at).getTime() < 90 * 6e4) return { skipped: "прошлый поиск был меньше 90 минут назад" };
+    const gap = opts.gapMin ?? 90;
+    if (last && Date.now() - new Date(last.started_at).getTime() < gap * 6e4) return { skipped: `прошлый поиск был меньше ${gap} минут назад` };
   }
   const qs = opts.queryIds?.length ? ((await db.from("queries").select("id,kind,value").in("id", opts.queryIds)).data ?? []) : await pickQueries(platform, s.queries_per_run);
   if (!qs.length) return { skipped: "все поиски дали ноль новых, отдыхают 3 дня: добавь хэштеги на странице Поиск" };

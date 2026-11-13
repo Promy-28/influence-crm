@@ -66,7 +66,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     </details>
 
     <details className="panel set"><summary>Поиск и фильтры</summary>
-      <form action={saveSettings} className="flex flex-col gap-3" style={{ marginTop: 12 }}><Keys k={["platforms", "require_ugc_in_bio", "fresh_days", "max_followers", "min_followers", "us_only", "english_only", "auto_approve", "auto_approve_score", "auto_reject_score", "review_buffer_days", "results_per_query", "queries_per_run", "profile_batch", "apify_month_budget", "tiktok_actor", "ig_discover_actor", "ig_profile_actor"]} />
+      <form action={saveSettings} className="flex flex-col gap-3" style={{ marginTop: 12 }}><Keys k={["search_mode", "search_weekday", "platforms", "require_ugc_in_bio", "fresh_days", "max_followers", "min_followers", "us_only", "english_only", "auto_approve", "auto_approve_score", "auto_reject_score", "review_buffer_days", "results_per_query", "queries_per_run", "profile_batch", "apify_month_budget", "tiktok_actor", "ig_discover_actor", "ig_profile_actor"]} />
+        <div className="form-grid" style={{ marginTop: 0 }}>
+          <label className="field">Когда искать<select className="in" name="search_mode" defaultValue={s.search_mode}><option value="weekly">Раз в неделю, на всю неделю отправки</option><option value="auto">Автоматически, когда запас кончается</option><option value="off">Только вручную</option></select><span>Раз в неделю: в выбранный день тула ищет, пока не наберёт креаторов на неделю писем.</span></label>
+          <label className="field">День поиска<select className="in" name="search_weekday" defaultValue={String(s.search_weekday)}>{["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"].map((d, i) => <option key={i} value={i}>{d}</option>)}</select></label>
+        </div>
         <div className="row" style={{ gap: 18 }}><label className="check-row"><input type="checkbox" name="platforms" value="tiktok" defaultChecked={s.platforms.includes("tiktok")} />TikTok</label><label className="check-row"><input type="checkbox" name="platforms" value="instagram" defaultChecked={s.platforms.includes("instagram")} />Instagram</label></div>
         <div className="row" style={{ gap: 18 }}><Chk s={s} k="require_ugc_in_bio" label="Обязательно UGC в описании" /><Chk s={s} k="us_only" label="Только США" /><Chk s={s} k="english_only" label="Только английский" /></div>
         <div className="form-grid" style={{ marginTop: 0 }}>
