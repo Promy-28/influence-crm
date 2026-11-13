@@ -44,6 +44,15 @@ export async function bulkDecide(f: FormData) {
   for (const id of ids) await decide(id, d, S(f, "reason") || undefined);
   back(f, "/review");
 }
+// Approves the whole queue in one go. Not marked as a person's decision, so it doesn't skew what the AI learns from.
+export async function approveAll(f: FormData) {
+  const who = await requireSession(); const min = Number(S(f, "min")) || 0;
+  const { data } = await db.from("creators").select("id").eq("review_status", "pending").not("email", "is", null).not("ai_at", "is", null).gte("ai_score", min).limit(5000);
+  const ids = (data ?? []).map((r) => r.id);
+  for (let i = 0; i < ids.length; i += 200) await db.from("creators").update({ review_status: "approved", reviewed_at: new Date().toISOString() }).in("id", ids.slice(i, i + 200));
+  await log("approve_all", `Одобрены все в очереди с оценкой от ${min}: ${ids.length}`, null, null, who);
+  redirect(`/review?msg=${encodeURIComponent(`Одобрено: ${ids.length}. Уйдут в Instantly с ближайшими запусками автоматики, до дневной нормы.`)}`);
+}
 export async function decideForm(f: FormData) { await decide(S(f, "id"), S(f, "decision") as "approved" | "rejected" | "pending", S(f, "reason") || undefined); back(f, "/review"); }
 
 // ---- Settings ----

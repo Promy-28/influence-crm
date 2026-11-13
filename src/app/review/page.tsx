@@ -4,14 +4,14 @@ import { getSettings } from "@/lib/settings";
 import { FLAG_TEXT } from "@/lib/normalize";
 import { ReviewDeck, type Card } from "@/components/ReviewDeck";
 import { TabLink, Submit, PickAll } from "@/components/ui";
-import { decideForm, bulkDecide } from "@/lib/actions";
+import { decideForm, bulkDecide, approveAll } from "@/lib/actions";
 import { n, ago } from "@/lib/format";
 
 const COLS = "id,platform,handle,name,bio,email,email_source,profile_url,avatar_url,followers,likes,posts_7d,avg_views,last_post_at,region,ai_score,ai_verdict,ai_reasons,ai_line,ai_us,ai_english,rule_flags,recent_posts,bio_link,reject_reason,reviewed_by,queries(kind,value)";
 type Row = Card & { reject_reason: string | null; reviewed_by: string | null; queries: { kind: string; value: string } | null };
 const toCard = (r: Row): Card => ({ ...r, query: r.queries ? `${r.queries.kind === "hashtag" ? "#" : ""}${r.queries.value}` : null });
 
-export default async function Review({ searchParams }: { searchParams: Promise<{ t?: string }> }) {
+export default async function Review({ searchParams }: { searchParams: Promise<{ t?: string; msg?: string }> }) {
   const sp = await searchParams; const t = sp.t ?? "deck";
   const c = async (q: PromiseLike<{ count: number | null }>) => (await q).count ?? 0;
   const [pending, unscored, auto, s, ag] = await Promise.all([
@@ -29,7 +29,10 @@ export default async function Review({ searchParams }: { searchParams: Promise<{
       {ag.high >= 20 && ag.precision !== null && <span className={`tag ${ag.precision >= 0.9 ? "lime" : ""}`}>Точность AI при оценке ≥{s.auto_approve_score}: {Math.round(ag.precision * 100)}% из {ag.high}{ag.precision >= 0.9 && !s.auto_approve ? ", можно включить автоодобрение в Настройках" : ""}</span>}
       {ag.high < 20 && <span className="muted">Чтобы понять, можно ли доверить AI одобрение, нужно 20+ твоих решений по креаторам с оценкой ≥{s.auto_approve_score}. Сейчас {ag.high}.</span>}
       {s.auto_approve && <span className="tag good">Автоодобрение включено: оценка ≥ {s.auto_approve_score}</span>}
-    </div></div>;
+    </div>
+    {sp.msg && <div className="okbox">{sp.msg}</div>}
+    {pending > 0 && <form action={approveAll} className="row" style={{ fontSize: 13 }}><span className="muted">Одобрить всю очередь ({pending}) с оценкой AI от</span><input className="in" name="min" type="number" defaultValue={0} min={0} max={100} style={{ width: 70 }} aria-label="Минимальная оценка" /><Submit className="btn-p">Одобрить всех</Submit></form>}
+    </div>;
 
   if (t === "deck") {
     const { data } = await db.from("creators").select(COLS).eq("review_status", "pending").not("email", "is", null).not("ai_at", "is", null).order("ai_score", { ascending: false, nullsFirst: false }).order("created_at").limit(80);
