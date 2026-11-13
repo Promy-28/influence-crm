@@ -2,7 +2,9 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { COOKIE, readToken } from "./session";
-const client = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+// Tolerates the URL pasted with /rest/v1/ or a trailing slash from the Supabase dashboard.
+export const supabaseUrl = () => (process.env.SUPABASE_URL ?? "").trim().replace(/\/rest\/v1\/?$/, "").replace(/\/+$/, "");
+const client = createClient(supabaseUrl(), process.env.SUPABASE_SERVICE_ROLE_KEY!, {
   auth: { persistSession: false },
   global: {
     // Writes must never fail silently: a failed save surfaces on the error page instead of looking done.
