@@ -143,7 +143,7 @@ export async function toggleQuery(f: FormData) { await requireSession(); await d
 export async function runSearch(f: FormData) {
   await requireSession(); const p = S(f, "platform") as "tiktok" | "instagram";
   const ids = f.getAll("q").map(String).filter(Boolean);
-  const r = S(f, "stage") === "profile" ? await startProfiles(p) : S(f, "stage") === "seeds" ? await startProfiles(p, undefined, ((await db.from("queries").select("value").eq("platform", p).eq("kind", "profile").eq("active", true)).data ?? []).map((q) => q.value)) : await startDiscovery(p, undefined, { queryIds: ids });
+  const r = S(f, "stage") === "profile" ? await startProfiles(p) : S(f, "stage") === "seeds" ? await startProfiles(p, undefined, ((await db.from("queries").select("value").eq("platform", p).eq("kind", "profile").eq("active", true)).data ?? []).map((q) => q.value)) : await startDiscovery(p, undefined, { queryIds: ids, manual: true });
   redirect(`/sourcing?msg=${encodeURIComponent(JSON.stringify(r))}`);
 }
 export async function addCreator(f: FormData) {

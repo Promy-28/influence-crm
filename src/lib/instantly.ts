@@ -148,8 +148,12 @@ const str = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 export async function onEvent(b: Hook) {
   const type = str(b.event_type); const email = str(b.lead_email ?? b.email).toLowerCase();
   if (!email) return { skipped: "нет почты" };
-  const { data: c } = await db.from("creators").select("id,arm_id,first_sent_at,opened_at,clicked_at,replied_at,steps_sent,opens").ilike("email", email).maybeSingle();
+  // The webhook gets every campaign in the workspace (sales, the old creator campaigns): only our arms count.
+  const camp = str(b.campaign_id);
+  if (camp) { const { data: arm } = await db.from("arms").select("id").eq("inst_campaign_id", camp).maybeSingle(); if (!arm) return { skipped: "чужая кампания" }; }
+  const { data: c } = await db.from("creators").select("id,arm_id,first_sent_at,opened_at,clicked_at,replied_at,steps_sent,opens,queued_at").ilike("email", email).maybeSingle();
   if (!c) return { skipped: "не наш креатор" };
+  if (!c.queued_at) return { skipped: "не отправлялся тулой" };
   const at = str(b.timestamp) || new Date().toISOString();
   const step = Number(b.step ?? 0) || 0; const eaccount = str(b.email_account ?? b.eaccount) || null;
   const ev = async (t: string, st = step, data?: unknown) => db.from("events").upsert({ creator_id: c.id, type: t, step: st, arm_id: c.arm_id, eaccount, at, data: data ?? null }, { onConflict: "creator_id,type,step", ignoreDuplicates: true });
@@ -219,7 +223,7 @@ export async function syncAnalytics() {
     for (let page = 0; page < 20; page++) {
       const j = await inst<{ items?: { email: string; email_open_count?: number; email_reply_count?: number; email_click_count?: number; status?: number; timestamp_last_open?: string; timestamp_last_reply?: string; timestamp_last_contact?: string }[]; next_starting_after?: string }>("/api/v2/leads/list", { method: "POST", body: JSON.stringify({ campaign: a.inst_campaign_id, limit: 100, ...(after ? { starting_after: after } : {}) }) }).catch(() => null);
       for (const l of j?.items ?? []) {
-        const { data: c } = await db.from("creators").select("id,first_sent_at,opened_at,replied_at,bounced_at,arm_id").ilike("email", l.email).maybeSingle(); if (!c) continue;
+        const { data: c } = await db.from("creators").select("id,first_sent_at,opened_at,replied_at,bounced_at,arm_id,queued_at").ilike("email", l.email).maybeSingle(); if (!c || !c.queued_at) continue;
         const patch: Record<string, unknown> = {};
         if (!c.first_sent_at && l.timestamp_last_contact) { patch.first_sent_at = l.timestamp_last_contact; await db.from("events").upsert({ creator_id: c.id, type: "sent", step: 1, arm_id: c.arm_id, at: l.timestamp_last_contact, data: { backfill: true } }, { onConflict: "creator_id,type,step", ignoreDuplicates: true }); }
         if (!c.opened_at && (l.email_open_count ?? 0) > 0) { patch.opened_at = l.timestamp_last_open ?? new Date().toISOString(); await db.from("events").upsert({ creator_id: c.id, type: "opened", step: 1, arm_id: c.arm_id, at: patch.opened_at as string, data: { backfill: true } }, { onConflict: "creator_id,type,step", ignoreDuplicates: true }); }

@@ -18,17 +18,26 @@ const capFor = (rows: number) => Math.max(1, Math.ceil((rows / 1000) * 6 * 100) 
 // Picks queries to run: never-run first, then the ones whose creators get approved, then the longest-rested.
 async function pickQueries(platform: string, n: number) {
   const { data } = await db.from("query_stats").select("*").eq("platform", platform).eq("active", true).neq("kind", "profile");
-  const rows = (data ?? []) as { id: string; kind: string; value: string; runs: number; results: number; approved: number; found: number; last_run_at: string | null }[];
+  const rows0 = (data ?? []) as { id: string; kind: string; value: string; runs: number; results: number; approved: number; found: number; last_run_at: string | null }[];
+  // A hashtag whose last two searches brought nobody new rests for 3 days: its top posts don't change that fast.
+  const { data: recent } = await db.from("runs").select("query_ids,new_creators,started_at").eq("platform", platform).eq("stage", "discover").eq("status", "done").order("started_at", { ascending: false }).limit(60);
+  const tired = new Set(rows0.filter((q) => { const last = (recent ?? []).filter((r) => (r.query_ids as string[]).includes(q.id)).slice(0, 2); return last.length === 2 && last.every((r) => r.new_creators === 0) && Date.now() - new Date(last[0].started_at).getTime() < 3 * 864e5; }).map((q) => q.id));
+  const rows = rows0.filter((q) => !tired.has(q.id));
   const score = (q: (typeof rows)[number]) => (q.runs === 0 ? 1e9 : 0) + ((q.approved + 1) / (q.found + 5)) * 1000 + (Date.now() - new Date(q.last_run_at ?? 0).getTime()) / 36e5;
   return rows.sort((a, b) => score(b) - score(a)).slice(0, n);
 }
 
-export async function startDiscovery(platform: "tiktok" | "instagram", s?: Settings, opts: { queryIds?: string[] } = {}) {
+export async function startDiscovery(platform: "tiktok" | "instagram", s?: Settings, opts: { queryIds?: string[]; manual?: boolean } = {}) {
   s = s ?? (await getSettings());
   const spent = await monthSpend();
   if (spent >= s.apify_month_budget) return { skipped: `бюджет Apify на месяц исчерпан ($${spent.toFixed(2)})` };
+  // At most one search per platform every 90 minutes unless started by hand: each run costs ~$0.5.
+  if (!opts.queryIds?.length && !opts.manual) {
+    const { data: last } = await db.from("runs").select("started_at").eq("platform", platform).eq("stage", "discover").order("started_at", { ascending: false }).limit(1).maybeSingle();
+    if (last && Date.now() - new Date(last.started_at).getTime() < 90 * 6e4) return { skipped: "прошлый поиск был меньше 90 минут назад" };
+  }
   const qs = opts.queryIds?.length ? ((await db.from("queries").select("id,kind,value").in("id", opts.queryIds)).data ?? []) : await pickQueries(platform, s.queries_per_run);
-  if (!qs.length) return { skipped: "нет активных поисков" };
+  if (!qs.length) return { skipped: "все поиски дали ноль новых, отдыхают 3 дня: добавь хэштеги на странице Поиск" };
   const per = s.results_per_query;
   const tags = qs.filter((q) => q.kind === "hashtag").map((q) => q.value), search = qs.filter((q) => q.kind === "search").map((q) => q.value);
   const actor = platform === "tiktok" ? s.tiktok_actor : s.ig_discover_actor;
@@ -243,7 +252,9 @@ export async function pipelineState(s?: Settings) {
     c(db.from("profile_queue").select("handle", { count: "exact", head: true }).eq("status", "new")),
   ]);
   const perDay = dailyNew(s);
-  return { pending, ready, inQueue, perDay, daysCovered: perDay ? (ready + pending * 0.5) / perDay : 0 };
+  const [{ count: ok }, { count: no }] = await Promise.all([db.from("creators").select("id", { count: "exact", head: true }).eq("review_status", "approved").not("reviewed_by", "is", null), db.from("creators").select("id", { count: "exact", head: true }).eq("review_status", "rejected")]);
+  const share = (ok ?? 0) + (no ?? 0) >= 20 ? (ok ?? 0) / ((ok ?? 0) + (no ?? 0)) : 0.5;
+  return { pending, ready, inQueue, perDay, daysCovered: perDay ? (ready + pending * share) / perDay : 0 };
 }
 
 // Can auto-approve be trusted? Of the creators the AI scored at or above the threshold, how many did a person approve.
