@@ -235,15 +235,24 @@ export async function setDnc(f: FormData) { await requireSession(); const id = S
 export async function saveNote(f: FormData) { await requireSession(); await db.from("creators").update({ notes: S(f, "notes") || null }).eq("id", S(f, "id")); back(f, `/creators/${S(f, "id")}`); }
 
 // ---- Import ----
+// CSV as is; an Excel file is turned into CSV, every sheet in turn, so the same importer reads it.
+async function fileText(f: FormData) {
+  const file = f.get("file") as File | null;
+  if (!file || !file.size) return String(f.get("text") ?? "");
+  if (/\.(xlsx|xls|ods)$/i.test(file.name)) {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.read(Buffer.from(await file.arrayBuffer()), { type: "buffer" });
+    return wb.SheetNames.map((n) => `## Sheet name: ${n}\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join("\n");
+  }
+  return file.text();
+}
 export async function importSheet(f: FormData) {
-  const who = await requireSession(); const file = f.get("file") as File | null;
-  const text = file && file.size ? await file.text() : String(f.get("text") ?? "");
+  const who = await requireSession(); const text = await fileText(f);
   const r = await importExisting(text, S(f, "label") || "таблица", who);
   redirect(`/import?msg=${encodeURIComponent(`Новых в базе: ${r.added}, уже были: ${r.known}, строк без почты: ${r.skipped}. Им тула писать не будет.`)}`);
 }
 export async function importPromy(f: FormData) {
-  const who = await requireSession(); const file = f.get("file") as File | null;
-  const text = file && file.size ? await file.text() : String(f.get("text") ?? "");
+  const who = await requireSession(); const text = await fileText(f);
   const r = await importPromyCsv(text, who);
   redirect(`/import?msg=${encodeURIComponent(`Из ${r.total} строк совпало с нашими креаторами: ${r.matched}`)}`);
 }
