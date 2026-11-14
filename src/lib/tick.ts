@@ -4,7 +4,7 @@ import { db, log } from "./db";
 import { getSettings, setSetting } from "./settings";
 import { getRun } from "./apify";
 import { finishRun, pipelineState, resolveBioLinks, scoreCreators, startDiscovery, startProfiles } from "./sourcing";
-import { mailboxHealth, pushLeads, syncAnalytics } from "./instantly";
+import { mailboxHealth, pushLeads, syncAnalytics, syncArms } from "./instantly";
 import { retryUnlabeled, sendDue } from "./replies";
 
 export const tickToken = () => createHmac("sha256", process.env.SESSION_SECRET!).update("tick").digest("hex").slice(0, 32);
@@ -63,6 +63,7 @@ export async function tick() {
   await step("bio_links", () => resolveBioLinks(8));
   if (s.openai_key) await step("score", () => scoreCreators(16));
   if (s.instantly_key) {
+    await step("sync_arms", () => syncArms());
     await step("push", () => pushLeads());
     await step("autopilot", () => sendDue());
     await step("relabel", () => retryUnlabeled());

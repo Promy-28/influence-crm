@@ -39,3 +39,14 @@ test("bandit", () => {
   const small = { a: 0, b: 0 }; for (let i = 0; i < 2000; i++) { const x = allocate([{ id: "a", n: 0, k: 0 }, { id: "b", n: 0, k: 0 }], 2, 0.2); small.a += x.a; small.b += x.b; } assert.ok(Math.abs(small.a - small.b) < 300, JSON.stringify(small));
   const even = allocate([{ id: "a", n: 0, k: 0 }, { id: "b", n: 0, k: 0 }, { id: "c", n: 0, k: 0 }], 10, 0.2); assert.equal(even.a + even.b + even.c, 10);
 });
+import { STARTER, HYPOTHESES, applyChange, unknownVars, nextFocus } from "../src/lib/templates.ts";
+test("templates", () => {
+  for (const a of STARTER) for (const s of a.steps) { assert.deepEqual(unknownVars(s.subject + s.body), []); assert.ok(!/—/.test(s.body + s.subject)); }
+  for (const h of HYPOTHESES) {
+    const out = applyChange(STARTER[0].steps, h.change);
+    assert.ok(out.length >= 2, h.id); assert.deepEqual(unknownVars(out.map((s) => s.subject + s.body).join(" ")), [], h.id); assert.ok(!/—/.test(JSON.stringify(out)), h.id);
+    assert.notDeepEqual(out, STARTER[0].steps, h.id);
+  }
+  const ps = applyChange(STARTER[0].steps, { kind: "ps", value: "P.S. hi" }); assert.ok(ps[0].body.endsWith("Promy\n\nP.S. hi"));
+  assert.equal(nextFocus(50, 0.5, 0.1, 0.5).metric, null); assert.equal(nextFocus(300, 0.3, 0.1, 0.5).metric, "open"); assert.equal(nextFocus(300, 0.6, 0.03, 0.5).metric, "reply"); assert.equal(nextFocus(300, 0.6, 0.1, 0.2).metric, "registered");
+});

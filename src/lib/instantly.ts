@@ -61,9 +61,9 @@ export async function ensureCampaign(armId: string, s?: Settings) {
   if (!arm) throw new Error("Нет варианта");
   if (!s.senders.length) throw new Error("Не выбраны ящики для отправки (Настройки)");
   const body = { name: `Creators · ${arm.label} · ${arm.name}`.slice(0, 120), email_list: s.senders, daily_limit: s.senders.length * s.mailbox_daily, stop_on_reply: true, stop_on_auto_reply: false, link_tracking: false, open_tracking: s.open_tracking, text_only: false, campaign_schedule: schedule(s), sequences: sequence(arm.steps as Step[]) };
-  if (arm.inst_campaign_id) { await inst(`/api/v2/campaigns/${arm.inst_campaign_id}`, { method: "PATCH", body: JSON.stringify(body) }); return arm.inst_campaign_id as string; }
+  if (arm.inst_campaign_id) { await inst(`/api/v2/campaigns/${arm.inst_campaign_id}`, { method: "PATCH", body: JSON.stringify(body) }); await db.from("arms").update({ synced_steps: arm.steps }).eq("id", armId); return arm.inst_campaign_id as string; }
   const c = await inst<{ id: string }>("/api/v2/campaigns", { method: "POST", body: JSON.stringify(body) });
-  await db.from("arms").update({ inst_campaign_id: c.id }).eq("id", armId);
+  await db.from("arms").update({ inst_campaign_id: c.id, synced_steps: arm.steps }).eq("id", armId);
   await inst(`/api/v2/campaigns/${c.id}`, { method: "PATCH", body: JSON.stringify({ insert_unsubscribe_header: true }) }).catch(() => undefined);
   return c.id;
 }
@@ -146,6 +146,14 @@ export async function pushLeads(limit?: number) {
   for (const a of arms) await inst(`/api/v2/campaigns/${a.inst_campaign_id}/activate`, { method: "POST", body: "{}" }).catch(() => undefined);
   if (added || skipped) await log("leads_pushed", `В Instantly: ${added} новых, пропущено ${skipped} (уже были в Instantly)`, null, split, "Отправка");
   return { added, skipped, split };
+}
+
+// Arms edited in the tool (or in the database) get their texts pushed to Instantly on the next tick.
+export async function syncArms() {
+  const { data } = await db.from("arms").select("id,steps,synced_steps").not("inst_campaign_id", "is", null).neq("status", "archived");
+  let n = 0;
+  for (const a of data ?? []) if (JSON.stringify(a.steps) !== JSON.stringify(a.synced_steps)) { await ensureCampaign(a.id); n++; }
+  return { synced: n };
 }
 
 // ---- Events from Instantly ----

@@ -13,7 +13,8 @@ import { importExisting, importPromyCsv, promyEvent } from "./promy";
 import { tick, tickToken } from "./tick";
 import { aiJson, noDashes } from "./ai";
 import { handleKey, profileUrl, guessFirstName } from "./text";
-import { STARTER, unknownVars, type Step } from "./templates";
+import { STARTER, HYPOTHESES, applyChange, unknownVars, type Step } from "./templates";
+import { probBest } from "./stats";
 
 const S = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
 const back = (f: FormData, fallback: string) => redirect(S(f, "back") || fallback);
@@ -212,15 +213,36 @@ export async function suggestSubjects() {
   await setSetting("subject_ideas", (j.ideas ?? []).map(noDashes).slice(0, 8));
   redirect("/tests#ideas");
 }
-export async function armFromIdea(f: FormData) {
-  await requireSession();
-  const { data: champ } = await db.from("arms").select("steps").eq("status", "active").order("created_at").limit(1).maybeSingle();
-  const steps = ((champ?.steps as Step[]) ?? STARTER[0].steps).map((s, i) => (i === 0 ? { ...s, subject: S(f, "subject") } : s));
-  const { data: exp } = await db.from("experiments").select("id").eq("status", "running").limit(1).maybeSingle();
-  const { data: used } = await db.from("arms").select("label").eq("experiment_id", exp?.id ?? "00000000-0000-0000-0000-000000000000");
-  const label = "ABCDEFGH".split("").find((l) => !(used ?? []).some((u) => u.label === l)) ?? "X";
-  await db.from("arms").insert({ experiment_id: exp?.id ?? null, label, name: `Тема: ${S(f, "subject")}`.slice(0, 80), steps });
+// Starts a test from the library: the current best email against the same email with one change.
+// A running test ends first, and its most likely winner becomes the control.
+async function launchTest(name: string, hypothesis: string, metric: string, hypothesisId: string | null, challengerName: string, change: (base: Step[]) => Step[]) {
+  const who = await requireSession();
+  const { data: running } = await db.from("experiments").select("id").eq("status", "running").limit(1).maybeSingle();
+  let champId: string | null = null;
+  const pool = running ? (await db.from("arms").select("id").eq("experiment_id", running.id).eq("status", "active")).data ?? [] : (await db.from("arms").select("id").eq("status", "active")).data ?? [];
+  if (pool.length) {
+    const counts = await Promise.all(pool.map(async (a) => { const { data } = await db.from("creators").select("replied_at").eq("arm_id", a.id).not("first_sent_at", "is", null).limit(20000); return { id: a.id, n: (data ?? []).length, k: (data ?? []).filter((r) => r.replied_at).length }; }));
+    const p = probBest(counts); champId = counts.sort((x, y) => (p[y.id] ?? 0) - (p[x.id] ?? 0))[0].id;
+  }
+  if (running) await db.from("experiments").update({ status: "done", ended_at: new Date().toISOString(), winner_arm: champId, result: `Завершён при запуске теста «${name}»` }).eq("id", running.id);
+  const { data: champ } = champId ? await db.from("arms").select("id,steps,name").eq("id", champId).single() : { data: null };
+  const base = (champ?.steps as Step[]) ?? STARTER[0].steps;
+  const { data: e } = await db.from("experiments").insert({ name, hypothesis, metric, hypothesis_id: hypothesisId }).select("id").single();
+  // Old arms stop getting new leads; the ones already in their sequences finish it.
+  await db.from("arms").update({ status: "paused" }).eq("status", "active").neq("id", champId ?? "00000000-0000-0000-0000-000000000000");
+  if (champ) await db.from("arms").update({ experiment_id: e!.id, label: "A", status: "active" }).eq("id", champ.id);
+  else await db.from("arms").insert({ experiment_id: e!.id, label: "A", name: STARTER[0].name, steps: base });
+  await db.from("arms").insert({ experiment_id: e!.id, label: "B", name: challengerName, steps: change(base) });
+  await log("experiment_started", `Новый тест: ${name}`, null, null, who);
   redirect("/tests");
+}
+export async function startHypothesis(f: FormData) {
+  const h = HYPOTHESES.find((x) => x.id === S(f, "id")); if (!h) redirect("/tests");
+  await launchTest(h!.title, h!.why, h!.metric, h!.id, h!.title, (b) => applyChange(b, h!.change));
+}
+export async function armFromIdea(f: FormData) {
+  const subj = S(f, "subject");
+  await launchTest(`Тема: ${subj}`.slice(0, 80), "Тема от AI против текущей лучшей", "open", null, `Тема: ${subj}`.slice(0, 80), (b) => applyChange(b, { kind: "subject", value: subj }));
 }
 export async function armFromOld(f: FormData) {
   await requireSession();
