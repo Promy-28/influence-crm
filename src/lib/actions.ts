@@ -262,7 +262,7 @@ export async function sendDraftAction(f: FormData) {
 export async function skipDraft(f: FormData) {
   const who = await requireSession();
   await db.from("drafts").update({ status: "skipped", decided_by: who, decided_at: new Date().toISOString() }).eq("id", S(f, "id"));
-  await db.from("creators").update({ needs_reply: false }).eq("id", S(f, "creator"));
+  await db.from("creators").update({ needs_reply: false, needs_human: false, human_reason: null }).eq("id", S(f, "creator"));
   redirect(`/inbox${S(f, "next") ? `?c=${S(f, "next")}` : ""}`);
 }
 export async function redraft(f: FormData) {
@@ -274,7 +274,7 @@ export async function redraft(f: FormData) {
 export async function relabel(f: FormData) { await requireSession(); await handleReply(S(f, "creator")); redirect(`/inbox?c=${S(f, "creator")}`); }
 export async function manualReply(f: FormData) {
   await requireSession(); const cid = S(f, "creator");
-  try { await replyByEmail(cid, String(f.get("body") ?? "").trim()); await db.from("drafts").update({ status: "superseded" }).eq("creator_id", cid).in("status", ["new", "scheduled"]); } catch (e) { redirect(`/inbox?c=${cid}&err=${encodeURIComponent(String(e).slice(0, 200))}`); }
+  try { await replyByEmail(cid, String(f.get("body") ?? "").trim()); await db.from("drafts").update({ status: "superseded" }).eq("creator_id", cid).in("status", ["new", "scheduled"]); await db.from("creators").update({ needs_human: false, human_reason: null }).eq("id", cid); } catch (e) { redirect(`/inbox?c=${cid}&err=${encodeURIComponent(String(e).slice(0, 200))}`); }
   redirect(`/inbox?c=${cid}`);
 }
 export async function setLabel(f: FormData) {
@@ -284,7 +284,21 @@ export async function setLabel(f: FormData) {
   if (L?.stop) await removeLead(cid);
   back(f, `/inbox?c=${cid}`);
 }
-export async function doneDialog(f: FormData) { await requireSession(); await db.from("creators").update({ needs_reply: false }).eq("id", S(f, "creator")); redirect("/inbox"); }
+export async function doneDialog(f: FormData) { await requireSession(); await db.from("creators").update({ needs_reply: false, needs_human: false, human_reason: null }).eq("id", S(f, "creator")); redirect("/inbox"); }
+
+// ---- Telegram ----
+export async function tgFind(f: FormData) {
+  await requireSession(); const { findChats } = await import("./notify");
+  const token = S(f, "tg_token") || (await getSettings()).tg_token;
+  if (S(f, "tg_token")) await setSetting("tg_token", S(f, "tg_token"));
+  try { const chats = await findChats(token); redirect(`/settings?tgchats=${encodeURIComponent(JSON.stringify(chats))}#tg`); }
+  catch (e) { if (String(e).includes("NEXT_REDIRECT")) throw e; redirect(`/settings?msg=${encodeURIComponent(`Telegram: ${String(e).slice(0, 200)}. Если этот бот уже работает в сейлз-туле, впиши ID чата вручную.`)}#tg`); }
+}
+export async function tgTest() {
+  await requireSession(); const { ping } = await import("./notify");
+  const ok = await ping("✅ Promy Creators CRM подключена. Сюда будут приходить диалоги, где нужен человек, и сводка за день.");
+  redirect(`/settings?msg=${encodeURIComponent(ok ? "Тестовое сообщение отправлено в Telegram" : "Не отправилось: проверь токен бота, ID чата и что бот добавлен в чат")}#tg`);
+}
 
 // ---- Creators ----
 export async function markStage(f: FormData) {

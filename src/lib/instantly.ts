@@ -263,6 +263,6 @@ export async function mailboxHealth(apply = false) {
   if (apply) for (const [e, m] of Object.entries(by)) if (m.sent >= 40 && (m.bounced / m.sent) * 100 > s.bounce_pause_pct) {
     await inst(`/api/v2/accounts/${encodeURIComponent(e)}/pause`, { method: "POST", body: "{}" }).then(() => paused.push(e)).catch(() => undefined);
   }
-  if (paused.length) await log("mailbox_paused", `Поставлены на паузу из-за баунсов: ${paused.join(", ")}`, null, by, "Ящики");
+  if (paused.length) { await log("mailbox_paused", `Поставлены на паузу из-за баунсов: ${paused.join(", ")}`, null, by, "Ящики"); const { pingEvent } = await import("./notify"); await pingEvent("Ящики на паузе из-за баунсов", paused.join(", ")); }
   return { by, paused };
 }

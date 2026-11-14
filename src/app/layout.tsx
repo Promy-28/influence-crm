@@ -7,9 +7,10 @@ import { db } from "@/lib/db";
 import { logout } from "@/lib/actions";
 async function NavCounts() {
   const c = async (q: PromiseLike<{ count: number | null }>) => (await q).count ?? 0;
+  const { data: ap } = await db.from("settings").select("value").eq("key", "autopilot").maybeSingle();
   const [review, inbox] = await Promise.all([
     c(db.from("creators").select("id", { count: "exact", head: true }).eq("review_status", "pending").not("email", "is", null).not("ai_at", "is", null)),
-    c(db.from("creators").select("id", { count: "exact", head: true }).eq("needs_reply", true)),
+    c(db.from("creators").select("id", { count: "exact", head: true }).eq(ap?.value === true ? "needs_human" : "needs_reply", true)),
   ]);
   return <Nav counts={{ "/review": review, "/inbox": inbox }} />;
 }

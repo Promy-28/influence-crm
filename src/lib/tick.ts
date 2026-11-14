@@ -6,6 +6,8 @@ import { getRun } from "./apify";
 import { finishRun, pipelineState, resolveBioLinks, scoreCreators, startDiscovery, startProfiles } from "./sourcing";
 import { mailboxHealth, pushLeads, syncAnalytics, syncArms } from "./instantly";
 import { retryUnlabeled, sendDue } from "./replies";
+import { digest, pingEvent } from "./notify";
+import { monthSpend } from "./sourcing";
 
 export const tickToken = () => createHmac("sha256", process.env.SESSION_SECRET!).update("tick").digest("hex").slice(0, 32);
 
@@ -72,6 +74,30 @@ export async function tick() {
       await step("mailboxes", () => mailboxHealth(true));
     }
   }
+  await step("alerts", async () => {
+    if (!s.tg_token || !s.tg_chat) return "Telegram не подключён";
+    const now = new Date(); const wawDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Warsaw" }).format(now);
+    const wawHour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Warsaw", hour: "2-digit", hour12: false }).format(now));
+    const out: string[] = [];
+    const month = wawDay.slice(0, 7); const spend = await monthSpend();
+    if (spend >= s.apify_month_budget * 0.9 && s.budget_alert_month !== month) { await pingEvent("Apify: бюджет почти исчерпан", `Потрачено $${spend.toFixed(0)} из $${s.apify_month_budget} за месяц`); await setSetting("budget_alert_month", month); out.push("budget"); }
+    // Daily summary at 18:00 Warsaw, when the US day is starting.
+    if (wawHour >= 18 && s.last_digest !== wawDay) {
+      const since = new Date(now.getTime() - 864e5).toISOString();
+      const c = async (q: PromiseLike<{ count: number | null }>) => (await q).count ?? 0;
+      const [sent, replies, auto, human, registered, profiles, approvedReady] = await Promise.all([
+        c(db.from("events").select("id", { count: "exact", head: true }).eq("type", "sent").gte("at", since)),
+        c(db.from("events").select("id", { count: "exact", head: true }).eq("type", "replied").gte("at", since)),
+        c(db.from("drafts").select("id", { count: "exact", head: true }).eq("status", "sent").eq("decided_by", "Автопилот").gte("decided_at", since)),
+        c(db.from("creators").select("id", { count: "exact", head: true }).eq("needs_human", true)),
+        c(db.from("events").select("id", { count: "exact", head: true }).eq("type", "registered").gte("at", since)),
+        c(db.from("events").select("id", { count: "exact", head: true }).eq("type", "profile_done").gte("at", since)),
+        c(db.from("creators").select("id", { count: "exact", head: true }).eq("review_status", "approved").is("queued_at", null).eq("do_not_contact", false)),
+      ]);
+      await digest({ sent, replies, auto, human, registered, profiles, approvedReady }); await setSetting("last_digest", wawDay); out.push("digest");
+    }
+    return out;
+  });
   await setSetting("last_tick_at", new Date().toISOString());
   return { ms: Date.now() - t0, ...out };
 }

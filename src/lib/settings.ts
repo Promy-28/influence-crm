@@ -23,13 +23,15 @@ export const DEFAULTS = {
   min_arm_share: 0.2,
   bounce_pause_pct: 5,
   // Replies
-  autopilot: false, autopilot_labels: ["interested", "question", "registered"] as string[], autopilot_min_conf: 0.8, autopilot_delay_min: 20,
+  autopilot: false, autopilot_labels: ["interested", "question", "registered", "price"] as string[], autopilot_min_conf: 0.75, autopilot_delay_min: 10,
+  tg_token: "", tg_chat: "", last_digest: "", budget_alert_month: "",
   call_link: "",
   kb: `Promy (promy.io) is a platform where US app brands order on-camera UGC videos from creators.
 How it works for a creator:
 - Sign up free on promy.io and fill in the creator profile (portfolio, niches, price). Takes a few minutes.
 - Brands browse creators and send briefs. The brand sets the price per video.
-- Flow: brand approves you, you film 1 test video, the brand approves it and it is paid. Then usually a batch of about 10 videos, then re-orders after results.
+- Brands buy in bulk, not one-off videos. Flow: the brand picks you, you film 1 test video, the brand approves it and it is paid. Then usually a batch of around 10 videos, then re-orders of around 20 after results.
+- So it is not chasing $45 one-off gigs: one brand typically means $900+ for the creator. Say "typically" or "from $900+ per brand", never a guarantee or a cap.
 - Payout is instant when the brand approves a video. No cap on how many videos you make.
 - Face on camera is required. Videos are posted by Promy on branded accounts, your own socials are not used.
 - If a video needs changes the brand asks for a revision, it is not rejected.
@@ -42,7 +44,7 @@ Rules: never promise a specific income. Never invent brands, numbers or open bri
 };
 export type Settings = typeof DEFAULTS;
 export type Key = keyof Settings;
-export const SECRET: Key[] = ["apify_key", "openai_key", "instantly_key"];
+export const SECRET: Key[] = ["apify_key", "openai_key", "instantly_key", "tg_token"];
 export async function getSettings(): Promise<Settings> {
   const { data } = await db.from("settings").select("key,value");
   const out = { ...DEFAULTS } as Record<string, unknown>;

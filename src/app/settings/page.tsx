@@ -4,14 +4,14 @@ import { db } from "@/lib/db";
 import { LABELS } from "@/lib/replies";
 import { fmtTime } from "@/lib/format";
 import { Submit } from "@/components/ui";
-import { connectAll, runTick, saveSettings, senderName } from "@/lib/actions";
+import { connectAll, runTick, saveSettings, senderName, tgFind, tgTest } from "@/lib/actions";
 
 const Keys = ({ k }: { k: Key[] }) => <>{k.map((x) => <input key={x} type="hidden" name="_keys" value={x} />)}</>;
 function Num({ s, k, label, hint, step }: { s: Settings; k: Key; label: string; hint?: string; step?: string }) { return <label className="field">{label}<input className="in" name={k} type="number" step={step ?? "1"} defaultValue={String(s[k])} />{hint && <span>{hint}</span>}</label>; }
 function Txt({ s, k, label, hint, type = "text" }: { s: Settings; k: Key; label: string; hint?: string; type?: string }) { return <label className="field">{label}<input className="in" name={k} type={type} defaultValue={String(s[k] ?? "")} />{hint && <span>{hint}</span>}</label>; }
 function Chk({ s, k, label }: { s: Settings; k: Key; label: string }) { return <label className="check-row"><input type="checkbox" name={k} defaultChecked={!!s[k]} />{label}</label>; }
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ msg?: string }> }) {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ msg?: string; tgchats?: string }> }) {
   const sp = await searchParams; const s = await getSettings();
   let boxes: Mailbox[] = []; let boxErr = "";
   if (s.instantly_key) boxes = await listAccounts().catch((e) => { boxErr = String(e).slice(0, 160); return []; });
@@ -89,9 +89,19 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <Chk s={s} k="auto_approve" label="Автоодобрение: креаторы с высокой оценкой AI уходят в рассылку без проверки (включай, когда точность AI в Проверке ≥ 90%)" />
         <div><Submit className="btn-p">Сохранить</Submit></div></form></details>
 
+    <details className="panel set" id="tg" open={!!sp.tgchats || !s.tg_chat}><summary>Уведомления в Telegram</summary>
+      <p className="muted" style={{ fontSize: 13, margin: "6px 0 10px" }}>Сюда тула пишет, только когда нужен человек: креатор злится, торгуется, хочет созвон, спрашивает то, чего AI не знает, или автопилот не уверен. Плюс сводка за день в 18:00 и тревоги (ящик на паузе, кончается бюджет Apify). Всё остальное автопилот делает сам.</p>
+      <ol className="muted" style={{ fontSize: 13, paddingLeft: 18, margin: "0 0 10px" }}><li>Создай бота в @BotFather (или возьми бота сейлз-тулы) и скопируй токен.</li><li>Добавь бота в чат, куда слать уведомления, и напиши там любое сообщение.</li><li>Вставь токен и нажми «Найти чат» (или впиши ID чата вручную).</li></ol>
+      <form action={saveSettings} className="form-grid" style={{ marginTop: 0 }}><Keys k={["tg_token", "tg_chat"]} /><input type="hidden" name="back" value="/settings#tg" />
+        <label className="field">Токен бота<input className="in" name="tg_token" type="password" placeholder={masked(s.tg_token)} autoComplete="off" /></label>
+        <label className="field">ID чата<input className="in" name="tg_chat" defaultValue={s.tg_chat} placeholder="-100…" /></label>
+        <div className="row" style={{ alignSelf: "end" }}><Submit className="btn-p">Сохранить</Submit><Submit formAction={tgFind}>Найти чат</Submit>{s.tg_token && s.tg_chat && <Submit formAction={tgTest}>Тест</Submit>}</div></form>
+      {sp.tgchats && (() => { const chats = JSON.parse(sp.tgchats) as { id: string; title: string }[]; return chats.length ? <div className="flex flex-col gap-1" style={{ marginTop: 10 }}><b style={{ fontSize: 13 }}>Чаты, где бот видел сообщения:</b>{chats.map((c) => <form key={c.id} action={saveSettings} className="row"><Keys k={["tg_chat"]} /><input type="hidden" name="back" value="/settings#tg" /><input type="hidden" name="tg_chat" value={c.id} /><span style={{ width: 280 }}>{c.title} <span className="muted">({c.id})</span></span><Submit>Выбрать</Submit></form>)}</div> : <div className="note" style={{ marginTop: 10 }}>Бот пока не видел сообщений. Добавь его в чат, напиши там что-нибудь и нажми «Найти чат» ещё раз.</div>; })()}
+    </details>
+
     <details className="panel set"><summary>Ответы и AI</summary>
       <form action={saveSettings} className="flex flex-col gap-3" style={{ marginTop: 12 }}><Keys k={["autopilot", "autopilot_labels", "autopilot_min_conf", "autopilot_delay_min", "call_link", "kb", "model_fast", "model_write"]} />
-        <Chk s={s} k="autopilot" label="Автопилот: AI отправляет ответы сам" />
+        <Chk s={s} k="autopilot" label="Автопилот: AI отвечает сам, а человека зовёт в Telegram только в сложных случаях" />
         <div><b style={{ fontSize: 13 }}>На какие метки</b><div className="row" style={{ marginTop: 6 }}>{Object.entries(LABELS).filter(([, v]) => !v.noReply).map(([k, v]) => <label key={k} className="check-row"><input type="checkbox" name="autopilot_labels" value={k} defaultChecked={s.autopilot_labels.includes(k)} />{v.name}</label>)}</div></div>
         <div className="form-grid" style={{ marginTop: 0 }}>
           <Num s={s} k="autopilot_min_conf" label="Минимальная уверенность AI" step="0.05" />
