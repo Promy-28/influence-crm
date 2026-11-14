@@ -158,7 +158,7 @@ export async function addCreator(f: FormData) {
 // ---- Tests ----
 function stepsFrom(f: FormData): Step[] {
   const out: Step[] = [];
-  for (let i = 0; i < 6; i++) { const body = String(f.get(`body${i}`) ?? "").replace(/\r/g, "").trim(); if (!body) continue; out.push({ subject: S(f, `subject${i}`), body: noDashes(body), delay_days: i === 0 ? 0 : Math.max(1, Number(S(f, `delay${i}`)) || 3) }); }
+  for (let i = 0; i < 3; i++) { const body = String(f.get(`body${i}`) ?? "").replace(/\r/g, "").trim(); if (!body) continue; out.push({ subject: S(f, `subject${i}`), body: noDashes(body), delay_days: i === 0 ? 0 : Math.max(1, Number(S(f, `delay${i}`)) || 3) }); }
   return out;
 }
 export async function saveArm(f: FormData) {

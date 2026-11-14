@@ -31,10 +31,16 @@ export async function listAccounts(): Promise<Mailbox[]> {
 export async function snapshotExisting() {
   const { items } = await inst<{ items: { id: string; name: string; status: number; sequences?: { steps: { variants: { subject: string; body: string }[] }[] }[] }[] }>("/api/v2/campaigns?limit=100");
   const ids = (items ?? []).map((c) => c.id);
-  const stats = ids.length ? await inst<{ campaign_id: string; emails_sent_count?: number; open_count_unique?: number; open_count?: number; reply_count_unique?: number; reply_count?: number; leads_count?: number; bounced_count?: number }[]>(`/api/v2/campaigns/analytics?${ids.map((i) => `ids=${i}`).join("&")}`).catch(() => []) : [];
+  type St = Record<string, number | string>;
+  const stats = ids.length ? await inst<St[]>(`/api/v2/campaigns/analytics?${ids.map((i) => `ids=${i}`).join("&")}`).catch(() => [] as St[]) : [];
   const strip = (h: string) => h.replace(/<br\s*\/?>/gi, "\n").replace(/<\/(div|p)>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/\n{3,}/g, "\n\n").trim();
-  const campaigns = (items ?? []).map((c) => { const st = (stats as { campaign_id: string }[]).find((x) => x.campaign_id === c.id) as Record<string, number> | undefined;
-    return { id: c.id, name: c.name, status: c.status, steps: (c.sequences?.[0]?.steps ?? []).map((s) => ({ subject: s.variants?.[0]?.subject ?? "", body: strip(s.variants?.[0]?.body ?? "") })), sent: st?.emails_sent_count ?? 0, opened: st?.open_count_unique ?? st?.open_count ?? 0, replied: st?.reply_count_unique ?? st?.reply_count ?? 0, leads: st?.leads_count ?? 0, bounced: st?.bounced_count ?? 0 }; });
+  const n = (v: unknown) => (typeof v === "number" ? v : Number(v) || 0);
+  // Rates are per lead actually contacted. open_count/reply_count count every open and reply, so the unique ones are used,
+  // and replies exclude out-of-office auto-replies.
+  const campaigns = (items ?? []).map((c) => { const st = stats.find((x) => x.campaign_id === c.id);
+    const contacted = n(st?.contacted_count) || n(st?.leads_count);
+    return { id: c.id, name: c.name, status: c.status, steps: (c.sequences?.[0]?.steps ?? []).map((s) => ({ subject: s.variants?.[0]?.subject ?? "", body: strip(s.variants?.[0]?.body ?? "") })),
+      sent: n(st?.emails_sent_count), leads: contacted, opened: Math.min(contacted, n(st?.open_count_unique ?? st?.open_count)), replied: Math.min(contacted, n(st?.reply_count_unique ?? st?.reply_count)), bounced: n(st?.bounced_count) }; });
   await setSetting("instantly_snapshot", { at: new Date().toISOString(), campaigns });
   return campaigns;
 }
