@@ -48,3 +48,18 @@ test("provider receives bounded actual video, no email or profile text", async (
 test("provider errors never leak response bodies or keys", async () => {
   await assert.rejects(analyzeMedia({ apiKey: "secret", freeProjectConfirmed: true, source: sample, fetcher: (async () => new Response("secret", { status: 403 })) as typeof fetch }), e => e instanceof Error && e.message === "MEDIA_PROVIDER_403");
 });
+test("Drive HTML is never sent to the model as video", async () => {
+  let calls=0;
+  const fetcher=(async()=>{calls++;return new Response('<html>sign in</html>',{headers:{'content-type':'text/html'}})}) as typeof fetch;
+  await assert.rejects(analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:'https://drive.google.com/file/d/1234567890abcdef/view',fetcher}),/DRIVE_ACCESS_REQUIRED/);
+  assert.equal(calls,1);
+});
+test("uploaded Drive video uses real file input", async () => {
+  const file={name:'files/example',uri:'https://generativelanguage.googleapis.com/v1beta/files/example',mimeType:'video/mp4',uploadedAt:new Date().toISOString()};
+  const fetcher=(async(url,req)=>{
+    if(String(url).endsWith('/files/example'))return Response.json({state:'ACTIVE'});
+    const b=JSON.parse(String(req?.body));assert.equal(b.input[0].uri,file.uri);
+    return Response.json({output:[{type:'text',text:JSON.stringify(result)}]});
+  }) as typeof fetch;
+  assert.deepEqual(await analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:'https://drive.google.com/file/d/1234567890abcdef/view',providerFile:file,fetcher}),result);
+});
