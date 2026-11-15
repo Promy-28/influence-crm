@@ -1,8 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analyzeMedia, mediaSource, qualityDecision, validateMediaReview, type MediaReview } from "../src/lib/media-review.ts";
+import { analyzeMedia, mediaSource, qualityDecision, validateMediaReview, boundedVideoBytes, type MediaReview } from "../src/lib/media-review.ts";
 const sample = "https://www.youtube.com/watch?v=37ZPM_5fyWc";
 const result: MediaReview = { videoReviewed: true, audioReviewed: true, englishSpeech: true, intelligibility: 4, videoQuality: 4, onCamera: true, speech: [{ second: 2, quote: "This is a sample" }], frames: [{ second: 2, observation: "Ровный свет, лицо в кадре" }], summary: "Разборчивая речь, аккуратная картинка", limitations: "Оценён только образец" };
+test('chunked videos without Content-Length are bounded and preserved',async()=>{
+ const body=new ReadableStream<Uint8Array>({start(c){c.enqueue(new Uint8Array([1,2]));c.enqueue(new Uint8Array([3,4]));c.close()}});
+ assert.deepEqual([...await boundedVideoBytes(body,4)],[1,2,3,4]);
+ let cancelled=false;const tooBig=new ReadableStream<Uint8Array>({pull(c){c.enqueue(new Uint8Array(5))},cancel(){cancelled=true}});
+ await assert.rejects(boundedVideoBytes(tooBig,4),/FILE_SIZE_UNSUPPORTED/);assert.equal(cancelled,true);
+});
 test("profile URLs and internal URLs cannot masquerade as media", () => {
   for (const url of ["http://127.0.0.1/a.mp4", "https://www.instagram.com/test", "https://www.tiktok.com/@test", "https://evil.test/a.mp4", "https://user:password@youtu.be/37ZPM_5fyWc", "https://youtube.com.evil.test/watch?v=37ZPM_5fyWc"]) assert.throws(() => mediaSource(url));
   assert.equal(mediaSource("https://youtu.be/37ZPM_5fyWc"), sample);

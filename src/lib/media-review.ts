@@ -13,6 +13,13 @@ export class MediaReviewError extends Error {
   constructor(code: string) { super(code); this.code = code; }
 }
 const fail = (code: string): never => { throw new MediaReviewError(code); };
+export async function boundedVideoBytes(body: ReadableStream<Uint8Array> | null, limit = 32*1024*1024): Promise<Uint8Array<ArrayBuffer>> {
+  if(!body)return fail('MEDIA_FILE_SIZE_UNSUPPORTED');
+  const reader=body.getReader(),chunks:Uint8Array[]=[];let total=0;
+  try{for(;;){const {done,value}=await reader.read();if(done)break;total+=value.length;if(total>limit){await reader.cancel();return fail('MEDIA_FILE_SIZE_UNSUPPORTED')}chunks.push(value)}}finally{reader.releaseLock()}
+  if(!total)return fail('MEDIA_FILE_SIZE_UNSUPPORTED');
+  const out=new Uint8Array(total);let offset=0;for(const c of chunks){out.set(c,offset);offset+=c.length}return out;
+}
 export function mediaSource(value: string, parentUrl?: string): string {
   let u: URL; try { u = new URL(value); } catch { return fail("MEDIA_LINK_INVALID"); }
   if (u.protocol !== "https:" || u.username || u.password || u.port || value.length > 2000) return fail("MEDIA_LINK_INVALID");
@@ -87,13 +94,15 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
         if(next.protocol!=='https:'||!(next.hostname==='drive.usercontent.google.com'||next.hostname.endsWith('.googleusercontent.com')||next.hostname===initialHost||next.hostname==='media-public.canva.com'||next.hostname.endsWith('.my.canva.site')||next.hostname==='firebasestorage.googleapis.com'))return fail('MEDIA_DRIVE_ACCESS_REQUIRED');
         download=next.href;
       }
-      const size=Number(media?.headers.get('content-length')),mime=media?.headers.get('content-type')?.split(';')[0]||'';
+      let size=Number(media?.headers.get('content-length'));const mime=media?.headers.get('content-type')?.split(';')[0]||'';
       if(!media?.ok||!mime.startsWith('video/'))return fail('MEDIA_DRIVE_ACCESS_REQUIRED');
-      if(!Number.isSafeInteger(size)||size<=0||size>200*1024*1024)return fail('MEDIA_FILE_SIZE_UNSUPPORTED');
+      if(Number.isSafeInteger(size)&&size>200*1024*1024){await media.body?.cancel();return fail('MEDIA_FILE_SIZE_UNSUPPORTED')}
+      let uploadBody: BodyInit|null=media.body;
+      if(!Number.isSafeInteger(size)||size<=0){const bytes=await boundedVideoBytes(media.body);size=bytes.byteLength;uploadBody=new Blob([bytes],{type:mime});}
       const start=await fetcher('https://generativelanguage.googleapis.com/upload/v1beta/files',{method:'POST',headers:{'x-goog-api-key':opts.apiKey,'content-type':'application/json','x-goog-upload-protocol':'resumable','x-goog-upload-command':'start','x-goog-upload-header-content-length':String(size),'x-goog-upload-header-content-type':mime},body:JSON.stringify({file:{display_name:'Promy UGC sample'}}),signal:AbortSignal.timeout(10000)});
       const upload=start.headers.get('x-goog-upload-url');
       if(!start.ok||!upload||new URL(upload).origin!=='https://generativelanguage.googleapis.com')return fail('MEDIA_UPLOAD_UNAVAILABLE');
-      const sent=await fetcher(upload,{method:'POST',headers:{'content-length':String(size),'x-goog-upload-offset':'0','x-goog-upload-command':'upload, finalize'},body:media.body,duplex:'half',signal:AbortSignal.timeout(40000)} as RequestInit);
+      const sent=await fetcher(upload,{method:'POST',headers:{'content-length':String(size),'x-goog-upload-offset':'0','x-goog-upload-command':'upload, finalize'},body:uploadBody,duplex:'half',signal:AbortSignal.timeout(40000)} as RequestInit);
       if(!sent.ok)return fail('MEDIA_UPLOAD_UNAVAILABLE');
       const data=await sent.json();const f=data.file;
       if(!/^files\/[\w-]+$/.test(f?.name||'')||typeof f.uri!=='string'||!f.uri.startsWith('https://generativelanguage.googleapis.com/'))return fail('MEDIA_UPLOAD_UNAVAILABLE');
