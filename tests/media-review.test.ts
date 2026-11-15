@@ -7,6 +7,13 @@ test("profile URLs and internal URLs cannot masquerade as media", () => {
   for (const url of ["http://127.0.0.1/a.mp4", "https://www.instagram.com/test", "https://www.tiktok.com/@test", "https://evil.test/a.mp4", "https://user:password@youtu.be/37ZPM_5fyWc", "https://youtube.com.evil.test/watch?v=37ZPM_5fyWc"]) assert.throws(() => mediaSource(url));
   assert.equal(mediaSource("https://youtu.be/37ZPM_5fyWc"), sample);
 });
+test("real portfolio MP4s are accepted while unrelated arbitrary sites remain rejected",()=>{
+  assert.ok(mediaSource('https://alexadelany.my.canva.site/_assets/video/example.mp4'));
+  assert.ok(mediaSource('https://marcelleugc.com/videos/intro.mp4','https://marcelleugc.com/#start'));
+  assert.ok(mediaSource('https://www.alexaugc.com/_assets/video/example.mp4','www.alexaugc.com/portfolio'));
+  assert.throws(()=>mediaSource('https://unrelated.test/example.mp4','https://marcelleugc.com/'));
+  assert.throws(()=>mediaSource('https://alexadelany.my.canva.site/'));
+});
 test("captions cannot count as hearing speech", () => {
   assert.throws(() => validateMediaReview({ ...result, speech: [] }), /NO_SPEECH_EVIDENCE/);
   const silent = validateMediaReview({ ...result, audioReviewed: false, speech: [], intelligibility: null, englishSpeech: null });
