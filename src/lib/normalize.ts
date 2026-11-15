@@ -1,7 +1,7 @@
 // Turns raw Apify items into one shape and applies the hard filters. Pure, so it is tested.
 import { bioCountry, daysAgo, extractEmails, handleKey, INFLUENCER_RE, mentionsUgc, profileUrl } from "./text.ts";
 
-export type Post = { url: string; cover?: string | null; caption?: string | null; at?: string | null; views?: number | null; lang?: string | null };
+export type Post = { url: string; media_url?: string | null; cover?: string | null; caption?: string | null; at?: string | null; views?: number | null; lang?: string | null };
 export type Profile = {
   platform: "tiktok" | "instagram"; handle: string; name?: string | null; bio?: string | null;
   followers?: number | null; following?: number | null; likes?: number | null; posts_count?: number | null;
@@ -17,7 +17,7 @@ export function tiktokProfiles(items: Any[]): Profile[] {
     const a = it.authorMeta ?? it.author ?? null; if (!a?.name && !a?.uniqueId) continue;
     const handle = handleKey(String(a.name ?? a.uniqueId));
     const p = by.get(handle) ?? { platform: "tiktok" as const, handle, name: a.nickName ?? a.nickname ?? null, bio: a.signature ?? null, followers: num(a.fans ?? a.followers), following: num(a.following), likes: num(a.heart ?? a.likes), posts_count: num(a.video), verified: !!a.verified, private: !!a.privateAccount, avatar: a.avatar ?? a.originalAvatarUrl ?? null, bio_link: a.bioLink ?? null, region: a.region ?? null, posts: [] as Post[] };
-    if (it.webVideoUrl || it.id) p.posts.push({ url: it.webVideoUrl ?? `https://www.tiktok.com/@${handle}/video/${it.id}`, cover: it.videoMeta?.coverUrl ?? it.covers?.default ?? null, caption: it.text ?? null, at: it.createTimeISO ?? (it.createTime ? new Date(it.createTime * 1000).toISOString() : null), views: num(it.playCount), lang: it.textLanguage ?? null });
+    if (it.webVideoUrl || it.id) p.posts.push({ url: it.webVideoUrl ?? `https://www.tiktok.com/@${handle}/video/${it.id}`, media_url: [it.videoMeta?.playAddr, it.videoMeta?.downloadAddr, it.videoUrl].find(v => typeof v === "string" && v.startsWith("https://")) ?? null, cover: it.videoMeta?.coverUrl ?? it.covers?.default ?? null, caption: it.text ?? null, at: it.createTimeISO ?? (it.createTime ? new Date(it.createTime * 1000).toISOString() : null), views: num(it.playCount), lang: it.textLanguage ?? null });
     by.set(handle, p);
   }
   for (const p of by.values()) p.posts.sort((x, y) => (y.at ?? "").localeCompare(x.at ?? ""));
@@ -38,7 +38,7 @@ export function igProfiles(items: Any[]): Profile[] {
     verified: !!it.verified, private: !!it.private, avatar: it.profilePicUrlHD ?? it.profilePicUrl ?? null,
     bio_link: it.externalUrl ?? it.externalUrls?.[0]?.url ?? null, region: null,
     business_email: it.businessEmail ?? it.publicEmail ?? it.public_email ?? null,
-    posts: (it.latestPosts ?? []).map((x: Any) => ({ url: x.url ?? (x.shortCode ? `https://www.instagram.com/p/${x.shortCode}/` : ""), cover: x.displayUrl ?? null, caption: x.caption ?? null, at: x.timestamp ?? null, views: num(x.videoViewCount ?? x.videoPlayCount) })).sort((x: Post, y: Post) => (y.at ?? "").localeCompare(x.at ?? "")),
+    posts: (it.latestPosts ?? []).map((x: Any) => ({ url: x.url ?? (x.shortCode ? `https://www.instagram.com/p/${x.shortCode}/` : ""), media_url: typeof x.videoUrl === "string" ? x.videoUrl : null, cover: x.displayUrl ?? null, caption: x.caption ?? null, at: x.timestamp ?? null, views: num(x.videoViewCount ?? x.videoPlayCount) })).sort((x: Post, y: Post) => (y.at ?? "").localeCompare(x.at ?? "")),
   }));
 }
 
@@ -89,3 +89,4 @@ export function worthProfile(p: Profile) {
 }
 
 export { profileUrl };
+

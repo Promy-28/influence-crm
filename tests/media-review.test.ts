@@ -1,0 +1,50 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { analyzeMedia, mediaSource, qualityDecision, validateMediaReview, type MediaReview } from "../src/lib/media-review.ts";
+const sample = "https://www.youtube.com/watch?v=37ZPM_5fyWc";
+const result: MediaReview = { videoReviewed: true, audioReviewed: true, englishSpeech: true, intelligibility: 4, videoQuality: 4, onCamera: true, speech: [{ second: 2, quote: "This is a sample" }], frames: [{ second: 2, observation: "Ровный свет, лицо в кадре" }], summary: "Разборчивая речь, аккуратная картинка", limitations: "Оценён только образец" };
+test("profile URLs and internal URLs cannot masquerade as media", () => {
+  for (const url of ["http://127.0.0.1/a.mp4", "https://www.instagram.com/test", "https://www.tiktok.com/@test", "https://evil.test/a.mp4", "https://user:password@youtu.be/37ZPM_5fyWc", "https://youtube.com.evil.test/watch?v=37ZPM_5fyWc"]) assert.throws(() => mediaSource(url));
+  assert.equal(mediaSource("https://youtu.be/37ZPM_5fyWc"), sample);
+});
+test("captions cannot count as hearing speech", () => {
+  assert.throws(() => validateMediaReview({ ...result, speech: [] }), /NO_SPEECH_EVIDENCE/);
+  const silent = validateMediaReview({ ...result, audioReviewed: false, speech: [], intelligibility: null, englishSpeech: null });
+  assert.equal(qualityDecision(silent), "unverified");
+  assert.throws(() => validateMediaReview({ ...silent, englishSpeech: true }));
+});
+test("visual evidence and bounded timestamps are required", () => {
+  assert.throws(() => validateMediaReview({ ...result, frames: [] }), /NO_VISUAL_EVIDENCE/);
+  assert.throws(() => validateMediaReview({ ...result, speech: [{ second: 800, quote: "fake" }] }));
+  assert.throws(() => validateMediaReview({ ...result, videoQuality: 9 }));
+});
+test("quality is separate from nationality and price", () => {
+  assert.equal(qualityDecision(validateMediaReview({ ...result, country: "unrelated", quote: "330", tool: "send emails" })), "great");
+  assert.equal(qualityDecision({ ...result, intelligibility: 3 }), "maybe");
+  assert.equal(qualityDecision({ ...result, englishSpeech: false }), "no");
+  assert.equal("tool" in validateMediaReview({ ...result, tool: "send emails" }), false);
+});
+test("no API request without confirmed free project and key", async () => {
+  let calls = 0; const fetcher = (async () => { calls++; throw Error("must not call"); }) as typeof fetch;
+  await assert.rejects(analyzeMedia({ apiKey: "test", freeProjectConfirmed: false, source: sample, fetcher }), /FREE_PROJECT_NOT_CONFIRMED/);
+  await assert.rejects(analyzeMedia({ apiKey: "", freeProjectConfirmed: true, source: sample, fetcher }), /KEY_MISSING/);
+  assert.equal(calls, 0);
+});
+test("quota failure defers, without retries or paid fallback", async () => {
+  let calls = 0; const fetcher = (async () => { calls++; return new Response("quota", { status: 429 }); }) as typeof fetch;
+  await assert.rejects(analyzeMedia({ apiKey: "test", freeProjectConfirmed: true, source: sample, fetcher }), /QUOTA_DEFERRED/);
+  assert.equal(calls, 1);
+});
+test("provider receives bounded actual video, no email or profile text", async () => {
+  const fetcher = (async (url, req) => {
+    assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/interactions");
+    const b = JSON.parse(String(req?.body));
+    assert.equal(b.input[0].type, "video"); assert.equal(b.input[0].processing.end_offset, "60s");
+    assert.equal(b.store, false); assert.equal(b.model, "gemini-3.5-flash-lite");
+    return Response.json({ output: [{ type: "text", text: JSON.stringify(result) }] });
+  }) as typeof fetch;
+  assert.deepEqual(await analyzeMedia({ apiKey: "test", freeProjectConfirmed: true, source: sample, fetcher }), result);
+});
+test("provider errors never leak response bodies or keys", async () => {
+  await assert.rejects(analyzeMedia({ apiKey: "secret", freeProjectConfirmed: true, source: sample, fetcher: (async () => new Response("secret", { status: 403 })) as typeof fetch }), e => e instanceof Error && e.message === "MEDIA_PROVIDER_403");
+});

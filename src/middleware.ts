@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, readToken } from "@/lib/session";
 export async function middleware(req: NextRequest) {
-  if (req.nextUrl.pathname === "/login") return NextResponse.next();
+  if (req.nextUrl.pathname === "/login" || req.nextUrl.pathname === "/api/media-review") return NextResponse.next(); // media endpoint enforces session or existing APP_PASSWORD itself
   const name = await readToken(req.cookies.get(COOKIE)?.value);
   if (!name) return NextResponse.redirect(new URL("/login", req.url));
   return NextResponse.next();
