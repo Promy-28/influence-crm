@@ -28,11 +28,19 @@ function Delta({ now, before, pctPoints }: { now: number | null; before: number 
   return <span className={`delta ${d > 0 ? "up" : "down"}`}>{d > 0 ? "▲" : "▼"} {Math.abs(d).toFixed(1)}{pctPoints ? " п.п." : "%"}</span>;
 }
 
+// Does the AI score predict who answers and signs up? Grouped by score band and by who approved.
+async function scoreReport() {
+  const rows = await all<{ ai_score: number | null; reviewed_by: string | null; opened_at: string | null; replied_at: string | null; reply_label: string | null; positive_at: string | null; registered_at: string | null }>((f, t) => db.from("creators").select("ai_score,reviewed_by,opened_at,replied_at,reply_label,positive_at,registered_at").not("first_sent_at", "is", null).not("queued_at", "is", null).range(f, t));
+  const bands: [string, (x: number) => boolean][] = [["95+", (x) => x >= 95], ["90–94", (x) => x >= 90 && x < 95], ["85–89", (x) => x >= 85 && x < 90], ["80–84", (x) => x >= 80 && x < 85], ["ниже 80", (x) => x < 80]];
+  const sum = (list: typeof rows) => ({ n: list.length, opened: list.filter((r) => r.opened_at).length, replied: list.filter((r) => r.replied_at && r.reply_label !== "ooo").length, positive: list.filter((r) => r.positive_at).length, registered: list.filter((r) => r.registered_at).length });
+  return { bands: bands.map(([name, f]) => ({ name, ...sum(rows.filter((r) => r.ai_score !== null && f(r.ai_score))) })), byWho: [{ name: "Одобрил человек", ...sum(rows.filter((r) => r.reviewed_by)) }, { name: "Одобрено автоматически", ...sum(rows.filter((r) => !r.reviewed_by)) }] };
+}
+
 export default async function Dashboard({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string; msg?: string }> }) {
   const sp = await searchParams; const r = range(sp);
   const len = new Date(r.to).getTime() - new Date(r.from).getTime();
   const prevFrom = new Date(new Date(r.from).getTime() - len).toISOString().slice(0, 10);
-  const [s, co, pco, act, pact, pipe, spend] = await Promise.all([getSettings(), cohort(r.from, r.to), cohort(prevFrom, r.from), activity(r.from, r.to), activity(prevFrom, r.from), pipelineState(), monthSpend()]);
+  const [s, co, pco, act, pact, pipe, spend, sr] = await Promise.all([getSettings(), cohort(r.from, r.to), cohort(prevFrom, r.from), activity(r.from, r.to), activity(prevFrom, r.from), pipelineState(), monthSpend(), scoreReport()]);
   const cmp = sp.period !== "all";
   const rate = (a: number, b: number) => (b ? (a / b) * 100 : null);
 
@@ -95,5 +103,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       <section className="panel" style={{ padding: 18 }}><h2>Первых писем в день</h2><p className="muted" style={{ fontSize: 12.5, margin: "4px 0 8px" }}>Новые креаторы, которым ушло первое письмо. Фоллоуапы не считаются.</p><Bars title="Первые письма по дням" days={days} series={[{ name: "Первые письма", values: per("sent", true) }]} /></section>
       <section className="panel" style={{ padding: 18 }}><h2>Ответы и регистрации в день</h2><p className="muted" style={{ fontSize: 12.5, margin: "4px 0 8px" }}>Наведи на столбик, чтобы увидеть цифры за день.</p><Bars title="Ответы, регистрации, профили по дням" days={days} series={[{ name: "Ответы", values: per("replied") }, { name: "Регистрации", values: per("registered") }, { name: "Профили", values: per("profile_done") }]} /></section>
     </div>
+    <section className="panel tw"><div style={{ padding: "16px 18px 6px" }}><h2>Оценка AI и результат</h2><p className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>Кому писали за всё время, по оценке AI на момент отбора. Если у низких оценок ответов и регистраций столько же, сколько у высоких, порог автоодобрения можно опустить, а если меньше — поднять. Делать выводы стоит от ~50 писем в строке.</p></div>
+      <table className="t"><thead><tr><th>Оценка AI</th><th className="num">Написали</th><th className="num">Открыли</th><th className="num">Ответили</th><th className="num">С интересом</th><th className="num">Регистрации</th></tr></thead>
+        <tbody>{[...sr.bands, ...sr.byWho].map((b, i) => <tr key={b.name} style={i === sr.bands.length ? { borderTop: "2px solid var(--line)" } : undefined}><td><b>{b.name}</b></td><td className="num">{b.n}</td><td className="num">{showPct(b.opened, b.n)}</td><td className="num">{showPct(b.replied, b.n)}</td><td className="num">{showPct(b.positive, b.n)}</td><td className="num">{b.registered} <span className="muted">{b.n ? `(${showPct(b.registered, b.n)})` : ""}</span></td></tr>)}</tbody></table></section>
   </div>;
 }
