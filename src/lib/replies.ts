@@ -59,7 +59,7 @@ export async function draftFor(creatorId: string, instruction?: string) {
   if (!msgs.some((m) => m.direction === "in")) return null;
   const link = s.signup_url.replace("{code}", c.ref_code ?? "");
   const { data: box } = await db.from("settings").select("value").eq("key", `sender_name:${c.eaccount ?? ""}`).maybeSingle();
-  const sender = (box?.value as string) || (c.eaccount ? c.eaccount.split("@")[0].replace(/^\w/, (x) => x.toUpperCase()) : s.persona_first);
+  const sender = (box?.value as string) || (c.eaccount ? c.eaccount.split("@")[0].split(/[._-]/)[0].replace(/^\w/, (x) => x.toUpperCase()) : s.persona_first); // kim.r@ → Kim
   const first = c.arms?.steps?.[0] ? fill(c.arms.steps[0].body, { firstName: c.first_name ?? "there", line: c.ai_line ?? "", ref_link: link, handle: c.handle, sendingAccountFirstName: sender }) : "";
   const thread = [first && `Promy (first email): ${first}`, ...msgs.map((m) => `${m.direction === "in" ? "Creator" : "Promy"}: ${m.body}`)].filter(Boolean).join("\n\n").slice(-9000);
   const j = await aiJson<{ label: string; confidence: number; summary: string; reply: string; escalate?: boolean; escalate_reason?: string }>(SYS(s.kb, link, s.call_link, sender) + (await lessons()), `Creator @${c.handle}${c.first_name ? ` (${c.first_name})` : ""}. Bio: ${(c.bio ?? "").slice(0, 200)}\n\nThread:\n${thread}${instruction ? `\n\nManager's instruction for this reply: ${instruction}` : ""}`, { model: "write", temperature: 0.4 });
