@@ -7,7 +7,7 @@ import {loadRecord,saveRecord,telegram,api} from './store';
 const plainEmail=unquotedText;
 const ownerMessage=(m,c)=>!!m&&m.chat?.type==='private'&&m.chat.id===c.chatId&&m.from?.id===c.userId&&!m.from?.is_bot;
 const creatorIntake=()=>({handleCallback:async()=>false});
-const BOT_HELP='На связи. Пиши обычным текстом, команды не нужны.\n\n«arieldoesugc@gmail.com — что она писала?»\n«Ответь ей, спроси стоимость одного видео»\n«Что у нас с переписками?»\n\nПосле выбора креатора можно продолжать вопросами про неё. Для другой переписки укажи новый email или ответь на нужное сообщение. Черновики отправляются только после твоего подтверждения кнопкой. Сообщения обрабатываются сразу; фоновые проверки — раз в час.';
+const BOT_HELP='На связи. Пиши обычным текстом, команды не нужны.\n\n«creator@example.com — что она писала?»\n«Ответь ей, спроси стоимость одного видео»\n«Что у нас с переписками?»\n\nПосле выбора креатора можно продолжать вопросами про неё. Для другой переписки укажи новый email или ответь на нужное сообщение. Черновики отправляются только после твоего подтверждения кнопкой. Сообщения обрабатываются сразу; фоновые проверки — раз в час.';
 export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
  const callback=update.callback_query;
  const m=callback?{...callback.message,from:callback.from,text:callback.data?.replace(/^(send|cancel):([a-f0-9]{8})$/,'/$1 $2')}:update.message;
@@ -72,5 +72,5 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
  if(emailId)await saveRecord(env,'owner_mail_context',{emailId,at:new Date().toISOString()});
  const id='telegram:'+update.update_id;
  await runtime.enqueueJob({id,text:suggest?'Изучи переписку и предложи уместный ответ без новых обязательств.':text,emailId,replyToMessageId:m.message_id});
- await tell(emailId?'Принял. Проверю реальную переписку и отвечу по существу сейчас. Если просишь написать письмо — покажу черновик для подтверждения.':'Принял вопрос сейчас. Можешь писать обычным текстом. Для вопроса о креаторе укажи его email, например: «arieldoesugc@gmail.com — что она писала?»');return true;
+ await tell(emailId?'Принял. Проверю реальную переписку и отвечу по существу сейчас. Если просишь написать письмо — покажу черновик для подтверждения.':'Принял вопрос сейчас. Можешь писать обычным текстом. Для вопроса о креаторе укажи его email, например: «creator@example.com — что она писала?»');return true;
 }
