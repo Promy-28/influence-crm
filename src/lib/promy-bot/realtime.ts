@@ -6,13 +6,14 @@ import playbook from './playbook.json';
 import {mailSnapshot} from '../hub-data';
 import {mailIntent,mailOverview,overviewText,choosePending} from './mail-workflow';
 import {dialogueAction} from './dialogue-actions';
+import {unquotedText} from './mail-analysis';
 const runtime=(env:StoreEnv)=>createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campaigns});
 export const completeCloudJob=(env:StoreEnv,args:Parameters<ReturnType<typeof runtime>['completeJob']>[0])=>runtime(env).completeJob(args);
 export async function processJob(env:StoreEnv,id:string){
  const q=await loadRecord(env,'agent_jobs'),job=q?.items?.find((j:{id:string})=>j.id===id);
  if(!job||job.status!=='new')return {processed:false};
  const r=runtime(env);let context:Awaited<ReturnType<typeof r.getThread>>|null=null;
- const priorWalk=await loadRecord(env,'owner_mail_walk'),revision=dialogueAction(job.text)==='revise',intent=revision?'contact':mailIntent(job.text,!!priorWalk);
+ const priorWalk=await loadRecord(env,'owner_mail_walk'),revision=job.source!=='hub_batch'&&dialogueAction(job.text)==='revise',intent=job.source==='hub_batch'||revision?'contact':mailIntent(job.text,!!priorWalk);
  const activeDraft=await loadRecord(env,'owner_draft_context');let previousDraft:{recipient:string;body:string}|null=null;
  if(revision&&activeDraft?.draftId){
   const old=await loadRecord(env,'draft:'+activeDraft.draftId);
@@ -38,6 +39,7 @@ export async function processJob(env:StoreEnv,id:string){
  }
  if(job.emailId&&!context)context=await r.getThread(job.emailId,{includeReferences:false});
  if(job.emailId&&!context?.complete)throw Error('BOT_THREAD_INCOMPLETE');
+ if(job.source==='hub_batch'&&context){const queue=await loadRecord(env,'agent_jobs'),e:any=context.canonical;queue.items.find((j:any)=>j.id===id).hubContext={recipient:e.from_address_email,eaccount:e.eaccount,subject:e.subject,threadId:e.thread_id,incomingText:unquotedText(e),incomingAt:e.timestamp_email};await saveRecord(env,'agent_jobs',queue)}
  const result=await generateAnswer({ownerInstruction:walk?'Разбираем неотвеченные письма по порядку. По полной реальной ветке кратко объясни по-русски: что хочет креатор, где остановились и что предлагаешь ответить. Подготовь уместный английский черновик. Если для цены/условий нужно решение владельца — задай конкретный вопрос, не проси прислать историю. Исходный запрос: '+job.text:revision?'Исправь previousDraft по инструкции владельца, сохраняя остальные согласованные факты. Верни полный новый английский черновик, не только комментарий. Правка: '+job.text:job.text,previousDraft,conversation:context,mailAnalytics:overview,policy:playbook,missingContact:!job.emailId});
  if(walk&&context){result.answer=(overview?overviewText(overview)+'\n\n':'')+'Разбор · '+(context as any).canonical.from_address_email+'\n'+result.answer+'\n\nМожно уточнить ответ или перейти к следующему письму сообщением «дальше». Для отправки напиши «отправляй» после просмотра черновика.';result.answer=result.answer.slice(0,3500)}
  if(result.draftBody&&!job.emailId){result.draftBody='';result.requiresClarification=true;result.answer='С кем работаем? Напиши email креатора или ответь на сообщение с нужной перепиской.'}

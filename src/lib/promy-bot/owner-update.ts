@@ -64,6 +64,7 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
   if(Date.now()-Date.parse(draft.createdAt)>86400000){draft.status='expired';await saveRecord(env,'draft:'+draft.id,draft);await tell('Черновик старше суток. Нужен свежий ответ.');return true}
   const c=await runtime.getThread(draft.emailId),current=c.canonical;
   assertMailFocus(current);
+  const state=await loadRecord(env,'threadstate:'+current.thread_id);if(state?.closed||state?.status==='closed'||Date.parse(state?.snoozedUntil||'')>Date.now()){await tell('Переписка закрыта или отложена. Сначала проверь её статус.');return true}
   if(!c.complete||c.thread?.state!=='waiting_on_us'||c.thread.latestMessageId!==current.id||current.eaccount!==draft.eaccount||current.from_address_email!==draft.recipient||current.thread_id!==draft.threadId){draft.status='stale';await saveRecord(env,'draft:'+draft.id,draft);await tell('Переписка изменилась. Подготовь ответ на последнее письмо.');return true}
   if(draft.macroName!=='Reply'||!draft.html){await tell('Этот старый черновик без макроса Reply. Сначала подготовлю новую версию с именем, подписью и баннером.');return true}
   draft.status='sending';await saveRecord(env,'draft:'+draft.id,draft);

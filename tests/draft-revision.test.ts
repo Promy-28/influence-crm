@@ -12,4 +12,7 @@ test('new shown revision supersedes old version and binds natural approval to ex
  assert.equal(records.get('draft:'+first.draftId).status,'superseded');assert.equal(records.get('owner_draft_context').draftId,second.draftId);assert.equal(records.get('owner_draft_context').bodyHash,await shownDraftFingerprint(records.get('draft:'+second.draftId)));
  assert.equal(records.get('draft:'+second.draftId).recipient,'creator@example.com');assert.equal(records.get('draft:'+second.draftId).status,'draft');assert.equal(messages.length,2);
  assert.match(messages[1].body.text,/отправляй/i);assert.doesNotMatch(messages[1].body.text,/\/send/);
+ await r.enqueueJob({id:'batch:1',source:'hub_batch',text:'prepare for hub review',emailId:'incoming'});
+ const batch=await r.completeJob({id:'batch:1',answer:'На проверку в хабе',draftBody:'Thank you for your message.'});
+ assert.equal(records.get('draft:'+batch.draftId).status,'draft');assert.equal(records.get('draft:'+batch.draftId).source,'hub_batch');assert.equal(messages.length,2,'batch preparation sends neither Telegram spam nor email');
 });

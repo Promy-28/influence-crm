@@ -138,10 +138,11 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
    const threadState=await load('threadstate:'+email.thread_id);if(threadState?.closed||threadState?.status==='closed'||Date.parse(threadState?.snoozedUntil||'')>Date.now())throw Error('Thread closed or snoozed');
    const draftId=crypto.randomUUID().slice(0,8);draft={id:draftId,status:'draft',createdAt:iso(),emailId:email.id,campaign:email.campaign_id,threadId:email.thread_id,eaccount:email.eaccount,recipient:email.from_address_email,subject:/^re:/i.test(email.subject||'')?email.subject:'Re: '+(email.subject||''),body:draftBody.trim()};
    Object.assign(draft,await composeReplyMacro(provider,{body:draft.body,recipient:draft.recipient,eaccount:draft.eaccount,campaignId:draft.campaign}));
-   draft.incomingText=unquotedText(email).slice(0,8000);draft.incomingAt=email.timestamp_email||email.timestamp_created;
+   draft.incomingText=unquotedText(email).slice(0,8000);draft.incomingAt=email.timestamp_email||email.timestamp_created;draft.jobId=job.id;draft.source=job.source;draft.summary=answer.trim();
    await save('draft:'+draft.id,draft);job.draftId=draft.id;
   }
   job.status='delivering';job.answer=answer.trim();job.reason=reason;job.requiresClarification=!!requiresClarification;job.processedAt=iso();await save('agent_jobs',queue);
+  if(job.source==='hub_batch'){job.status='completed';await save('agent_jobs',queue);return {id,status:job.status,draftId:draft?.id||null}}
   const text=draft?draftCard(draft,answer.trim()):answer.trim()||'Нужно уточнение перед подготовкой ответа.';
   try{
    const extra=draft?{reply_markup:{inline_keyboard:[[{text:'Отправить',callback_data:'send:'+draft.id},{text:'Отменить',callback_data:'cancel:'+draft.id}],[{text:'Показать письмо с баннером',url:'https://influence-crm-ashy.vercel.app/inbox?source=reddit&email='+encodeURIComponent(draft.recipient)+'&job='+encodeURIComponent(job.id)}]]}}:{};

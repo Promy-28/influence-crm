@@ -3,7 +3,7 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { logout } from "@/lib/actions";
 const groups: [string, [string, string][]][] = [
-  ["Работа", [["/", "Рабочий стол"], ["/review", "Проверка"], ["/inbox", "Почта"]]],
+  ["Работа", [["/", "Рабочий стол"], ["/review", "Проверка"], ["/inbox", "Почта"], ["/drafts", "Черновики"]]],
   ["База", [["/creators", "Креаторы"], ["/sourcing", "Поиск"]]],
   ["Анализ", [["/tests", "Тесты писем"], ["/mailboxes", "Ящики"], ["/analytics", "Аналитика"]]],
 ];
