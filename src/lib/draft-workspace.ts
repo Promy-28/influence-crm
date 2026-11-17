@@ -15,7 +15,7 @@ export async function draftWorkspace(){
  const env=environment(),[drafts,queue,decisions]=await Promise.all([records(),loadRecord(env,'agent_jobs'),all<any>((from,to)=>db.from('promy_bot_records').select('id,value').like('id','decision:%').order('id').range(from,to))]);
  const visible=latestDrafts(drafts).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
  const saved=decisions.map(r=>decodeRecord(r.value)).filter(d=>d.status==='needs_decision').map(d=>({...d,status:'completed'}));
- const savedIds=new Set(saved.map(d=>d.emailId));
+ const savedIds=new Set(decisions.map(r=>decodeRecord(r.value).emailId));
  const jobs=(queue?.items||[]).filter((j:any)=>j.source==='hub_batch'&&(j.status!=='completed'||!j.draftId&&!savedIds.has(j.emailId))).map((j:any)=>({id:j.id,emailId:j.emailId,status:j.status,answer:j.answer||'',error:j.prepareError||'',context:j.hubContext||null,requiresClarification:!!j.requiresClarification}));
  return {drafts:visible.map(d=>({...d,ready:readyDraft(d),editable:editableDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs],focus:MAIL_FOCUS.label};
 }
@@ -35,8 +35,9 @@ export async function prepareNextDraft(){
  if(!job)return {processed:false};
  const marker='batchwork:'+job.id,lease=await loadRecord(env,marker);if(lease?.until>Date.now())return {processed:false,busy:true};
  await saveRecord(env,marker,{until:Date.now()+90000});
- try{return await processJob(env,job.id)}catch(e){const quota=e instanceof Error&&e.message==='BOT_FREE_QUOTA';const q=await loadRecord(env,'agent_jobs'),j=q?.items?.find((x:any)=>x.id===job.id);if(j){j.prepareError=quota?'Бесплатная квота исчерпана. Повтори позже.':'Не удалось подготовить ответ. Можно повторить.';await saveRecord(env,'agent_jobs',q)}return {processed:false,error:true,quota}}finally{await saveRecord(env,marker,{until:0})}
+ try{return await processJob(env,job.id)}catch(e){const code=e instanceof Error?e.message:'UNKNOWN',quota=code==='BOT_FREE_QUOTA';console.error('draft_prepare_failed',/^(?:BOT_|REPLY_)[A-Z_0-9]+$/.test(code)?code:'THREAD_OR_PROVIDER_FAILURE');const q=await loadRecord(env,'agent_jobs'),j=q?.items?.find((x:any)=>x.id===job.id);if(j){j.prepareError=quota?'Бесплатная квота исчерпана. Повтори позже.':code==='REPLY_MACRO_FIRST_NAME_MISSING'?'В Instantly нет однозначного имени для Reply. Проверь имя в карточке контакта.':code==='REPLY_MACRO_SIGNATURE_MISSING'?'У ящика Instantly отсутствует подпись для Reply.':'Не удалось подготовить ответ. Можно повторить.';await saveRecord(env,'agent_jobs',q)}return {processed:false,error:true,quota}}finally{await saveRecord(env,marker,{until:0})}
 }
+export async function retryDraftPreparation(){const env=environment(),q=await loadRecord(env,'agent_jobs');let count=0;for(const j of q?.items||[])if(j.source==='hub_batch'&&j.status==='new'&&j.prepareError){delete j.prepareError;count++}if(count)await saveRecord(env,'agent_jobs',q);return {queued:count}}
 export async function editWorkspaceDraft(id:string,token:unknown,body:string){
  const env=environment(),d=await loadRecord(env,'draft:'+id);
  if(!d||!editableDraft(d)||!validDraftApproval(d,token,process.env.APP_PASSWORD!))throw Error('Черновик изменился или устарел. Обнови страницу.');
