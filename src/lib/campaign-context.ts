@@ -9,3 +9,12 @@ export function briefEvidence(messages:any[]){
  const latest=briefs.at(-1);const url=latest?.text.match(/https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]+(?:\/[^\s<>]*)?/i)?.[0]||null;
  return {sent:!!latest,url,sentAt:latest?.at||null,evidenceEmailId:latest?.id||null,scope:scope?{at:scope.at,emailId:scope.id,text:scope.text.slice(0,5000)}:null,warning:'A later explicit offer in this creator conversation overrides the original brief. An offer is not acceptance. Never carry another creator price or scope over.'};
 }
+
+export function briefDraftIssue(body:string,evidence:any){
+ const t=body.replace(/\s+/g,' ');
+ const claimsSent=/\b(?:I|we)(?:['’]ve| have)?\s+(?:just\s+|already\s+)?(?:sent|shared|emailed)(?:\s+over)?\b[^.!?]{0,60}\bbrief\b|\bbrief\b[^.!?]{0,35}\b(?:was|has been|is)\s+(?:already\s+)?sent\b/i.test(t);
+ if(claimsSent&&!evidence?.sent)return 'Нет подтверждения, что этому креатору уже отправляли бриф. Какой бриф и объём отправить ему сейчас? Не буду утверждать, что отправка уже была.';
+ const vague=/\b(?:send|share|forward|get)\b[^.!?]{0,55}\bbrief\b|\bbrief\b[^.!?]{0,40}\b(?:shortly|soon|ready for you)\b/i.test(t);
+ if(vague&&!evidence?.sent&&!/https:\/\/docs\.google\.com\/document\/d\//i.test(t))return 'Вместо обещания прислать бриф нужен конкретный следующий шаг. Подтверди бриф и объём для этого креатора; подготовлю письмо со ссылкой и согласованными условиями.';
+ return null;
+}
