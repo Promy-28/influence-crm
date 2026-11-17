@@ -1,4 +1,5 @@
 import "./globals.css";
+import SenderAccounts from '@/components/SenderAccounts';
 import WorkspaceMode from "@/components/WorkspaceMode";
 import {workspaceMode} from "@/lib/workspace-mode";
 import { Suspense } from "react";
@@ -27,7 +28,7 @@ export default async function Layout({ children }: { children: React.ReactNode }
       <Suspense fallback={<Nav source={source} counts={{}} />}><NavCounts source={source}/></Suspense>
       <form action={logout} className="side-foot"><span>{name}</span><a href="/settings" className="side-gear" aria-label="Настройки" title="Настройки"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.8 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg></a><button>Выйти</button></form>
     </aside>
-    <main className="main"><WorkspaceMode source={source}/>{children}</main>
+    <main className="main"><WorkspaceMode source={source}/><Suspense fallback={<section className="panel sender-accounts"><b>Наши email · Instantly</b><p className="muted">Загружаю подключённые ящики…</p></section>}><SenderAccounts/></Suspense>{children}</main>
   </div></body></html>;
 }
 
