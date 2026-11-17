@@ -23,7 +23,7 @@ export async function queueDraftBatch(limit=30){
  limit=Math.max(1,Math.min(30,Math.floor(limit)||30));
  const env=environment(),r=runtime(env),[snapshot,workspace,queue]=await Promise.all([mailSnapshot(),draftWorkspace(),loadRecord(env,'agent_jobs')]);
  if(!snapshot.complete)throw Error('История загружена не полностью. Сначала обнови почту.');
- const blocked=new Set(workspace.drafts.filter((d:any)=>['draft','revision_requested','sending','uncertain','sent'].includes(d.status)).map((d:any)=>d.emailId));
+ const blocked=new Set(workspace.drafts.filter((d:any)=>(['revision_requested','sending','uncertain','sent'].includes(d.status)||d.status==='draft'&&d.editable)).map((d:any)=>d.emailId));
  for(const j of queue?.items||[])if(j.source==='hub_batch')blocked.add(j.emailId);
  const candidates=pendingThreads(snapshot).filter((t:any)=>!blocked.has(t.latestInboundId)).slice(0,limit);let queued=0;
  for(const t of candidates){const state=await loadRecord(env,'threadstate:'+t.id);if(state?.closed||state?.status==='closed'||Date.parse(state?.snoozedUntil||'')>Date.now())continue;await r.enqueueJob({id:'batch:'+crypto.randomUUID(),source:'hub_batch',emailId:t.latestInboundId,text:'Подготовь уместный английский ответ на последнее письмо. По-русски кратко объясни, что креатор хочет и что предлагаешь. Не принимай новую ставку или условия за владельца: если нужно его решение, задай конкретный вопрос и не создавай письмо.'});queued++}
