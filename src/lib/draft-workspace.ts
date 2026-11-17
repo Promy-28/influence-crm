@@ -66,5 +66,5 @@ export async function requestWorkspaceRevision(emailId:string,instruction:string
  const env=environment(),r=runtime(env);const id='batch:'+crypto.randomUUID();
  await r.enqueueJob({id,source:'hub_batch',mailSource:source,creatorId,emailId:emailId||null,text:instruction});
  for(const old of await records(source))if(old.emailId===emailId&&old.status==='draft'){old.status='revision_requested';await saveRecord(env,'draft:'+old.id,old)}
- return {queued:1};
+ return {queued:1,jobId:id};
 }

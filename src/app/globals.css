@@ -253,3 +253,7 @@ details.set { padding:16px 18px; } details.set > summary { cursor:pointer; font:
 .workspace-context{display:grid;gap:3px}.workspace-eyebrow{font-size:10px;letter-spacing:1.3px;text-transform:uppercase;color:var(--muted)}.workspace-context strong{font-size:16px}.workspace-context small{font-size:12px;color:var(--muted)}
 .workspace-toggle{display:flex;gap:4px;background:#efedf5;padding:4px;border-radius:12px;flex-shrink:0}.workspace-toggle button{border:0;background:transparent;color:#686577;border-radius:9px;padding:11px 18px;font-weight:650;cursor:pointer}.workspace-toggle button.active{background:#603dff;color:white;box-shadow:0 2px 6px #603dff25;cursor:default;opacity:1}.draft-approval-bar{top:112px}
 @media(max-width:700px){.workspace-topbar{top:6px;align-items:stretch;flex-direction:column;gap:10px;padding:12px;margin-bottom:18px}.workspace-context small{display:none}.workspace-toggle form{flex:1}.workspace-toggle button{width:100%;padding:10px}.draft-approval-bar{top:140px}}
+
+.mail-reply-panel,.mail-latest,.mail-history{margin:14px 20px;padding:18px;border:1px solid var(--line);border-radius:14px;background:white}.mail-reply-panel{background:#faf9ff}.mail-history>summary{cursor:pointer;font-weight:600}.mail-history .hub-messages{max-height:500px;margin-top:14px}.mail-latest h3{font-size:13px}.mail-reply-panel>.btn-p{align-self:flex-start}.mail-reply-panel h2{font-size:18px}
+
+.dlg-ai.mail-reply-flow{max-height:none;flex:1;min-height:0}.mail-reply-flow .mail-reply-panel,.mail-reply-flow .mail-latest,.mail-reply-flow .mail-history{margin:10px 0}
