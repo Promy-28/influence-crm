@@ -35,7 +35,7 @@ export async function prepareNextDraft(){
  if(!job)return {processed:false};
  const marker='batchwork:'+job.id,lease=await loadRecord(env,marker);if(lease?.until>Date.now())return {processed:false,busy:true};
  await saveRecord(env,marker,{until:Date.now()+90000});
- try{return await processJob(env,job.id)}catch(e){const q=await loadRecord(env,'agent_jobs'),j=q?.items?.find((x:any)=>x.id===job.id);if(j){j.prepareError=e instanceof Error&&e.message==='BOT_FREE_QUOTA'?'Бесплатная квота исчерпана. Повтори позже.':'Не удалось подготовить ответ. Можно повторить.';await saveRecord(env,'agent_jobs',q)}return {processed:false,error:true}}finally{await saveRecord(env,marker,{until:0})}
+ try{return await processJob(env,job.id)}catch(e){const quota=e instanceof Error&&e.message==='BOT_FREE_QUOTA';const q=await loadRecord(env,'agent_jobs'),j=q?.items?.find((x:any)=>x.id===job.id);if(j){j.prepareError=quota?'Бесплатная квота исчерпана. Повтори позже.':'Не удалось подготовить ответ. Можно повторить.';await saveRecord(env,'agent_jobs',q)}return {processed:false,error:true,quota}}finally{await saveRecord(env,marker,{until:0})}
 }
 export async function editWorkspaceDraft(id:string,token:unknown,body:string){
  const env=environment(),d=await loadRecord(env,'draft:'+id);

@@ -13,6 +13,7 @@ test('only an intact Reply macro with its actual banner and fresh draft is eligi
  const d=fixture();assert.equal(readyDraft(d,now),true);assert.equal(readyDraft({...d,html:d.html.replace(REPLY_BANNER,'https://example.com')},now),false);
  assert.equal(readyDraft({...d,macroName:'Other'},now),false);assert.equal(readyDraft({...d,status:'sent'},now),false);assert.equal(readyDraft(d,now+86400000),false);
  const unfinished={...d,...renderReplyMacro({body:'Here is the brief: [Insert brief details here]',firstName:d.macroFirstName,signature:d.signatureHtml})};assert.equal(readyDraft(unfinished,now),false);
+ assert.equal(readyDraft({...d,...renderReplyMacro({body:'Here is the brief for the video we have in mind...',firstName:d.macroFirstName,signature:d.signatureHtml})},now),false);
 });
 test('editing middle preserves greeting signature and banner but invalidates previous approval',()=>{
  const d=fixture(),token=approvalToken(d,'fixture'),edited={...d,...renderReplyMacro({body:'A shorter reply.',firstName:d.macroFirstName,signature:d.signatureHtml})};

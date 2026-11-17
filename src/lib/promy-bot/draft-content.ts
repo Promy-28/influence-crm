@@ -1,1 +1,1 @@
-export function hasUnresolvedPlaceholder(text:string){return /\[(?:insert|add|your|link|brief|name|встав|ссылк)[^\]]*\]|\{\{[^}]+\}\}|<(?:insert|brief|link)[^>]*>|\b(?:TBD|TODO)\b/i.test(text)}
+export function hasUnresolvedPlaceholder(text:string){return /\[(?:insert|add|your|link|brief|name|встав|ссылк)[^\]]*\]|\{\{[^}]+\}\}|<(?:insert|brief|link)[^>]*>|\b(?:TBD|TODO)\b/i.test(text)||/\bhere(?:'s| is)\b[^\n]{0,100}\bbrief\b/i.test(text)&&!/https?:\/\/\S+/i.test(text)}
