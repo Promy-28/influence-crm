@@ -1,3 +1,4 @@
+import MailSourceTabs from '@/components/MailSourceTabs';
 import FoundInbox from '@/components/FoundInbox';
 import {mailSnapshot} from '@/lib/hub-data';
 import {environment,loadRecord,api,telegram,saveRecord,campaigns} from '@/lib/promy-bot/store';
@@ -7,9 +8,9 @@ import {Submit} from '@/components/ui';
 import {approvalToken} from '@/lib/draft-approval';
 import {ago,fmtTime} from '@/lib/format';
 export default async function Inbox({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
- const sp=await searchParams,source=sp.source==='found'||(!sp.source&&(sp.c||sp.f))?'found':'reddit';
- const tabs=<nav className="tabs" aria-label="Источник переписок"><a className={'tab '+(source==='reddit'?'on':'')} href="/inbox?source=reddit">Green / Yellow</a><a className={'tab '+(source==='found'?'on':'')} href="/inbox?source=found">Найденные креаторы</a></nav>;
- if(source==='found')return <div className="hub-stack">{tabs}<FoundInbox searchParams={searchParams}/></div>;
+ const sp=await searchParams,source=sp.source==='apify'||sp.source==='found'||(!sp.source&&(sp.c||sp.f))?'apify':'reddit';
+ const tabs=<MailSourceTabs source={source} area="inbox"/>;
+ if(source==='apify')return <div className="hub-stack">{tabs}<FoundInbox searchParams={searchParams}/></div>;
  const snapshot=await mailSnapshot(),query=(sp.q||'').toLowerCase();
  const all=snapshot.threads as any[];const rows=all.filter(t=>(sp.status!=='wait'||t.state==='waiting_on_us')&&(!query||String(t.sender).toLowerCase().includes(query))).sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
  const selected=sp.thread?all.find(t=>t.id===sp.thread):sp.email?[...all].sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt))).find(t=>String(t.sender).toLowerCase()===sp.email!.toLowerCase()):rows[0];

@@ -1,7 +1,7 @@
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import {REPLY_BANNER,renderReplyMacro} from './promy-bot/reply-macro.ts';
 import {hasUnresolvedPlaceholder} from './promy-bot/draft-content.ts';
-export function exactDraft(d:any){return JSON.stringify([d.id,d.emailId,d.campaign,d.threadId,d.recipient,d.eaccount,d.subject,d.body,d.html,d.status])}
+export function exactDraft(d:any){return JSON.stringify([d.id,d.emailId,d.campaign,d.threadId,d.recipient,d.eaccount,d.subject,d.body,d.html,d.status,d.mailSource||'reddit',d.creatorId||null])}
 export function approvalToken(d:any,secret:string){return createHmac('sha256',secret).update(exactDraft(d)).digest('hex')}
 export function validDraftApproval(d:any,token:unknown,secret:string){const expected=approvalToken(d,secret);return typeof token==='string'&&/^[a-f0-9]{64}$/.test(token)&&timingSafeEqual(Buffer.from(expected),Buffer.from(token))}
 export function editableDraft(d:any,now=Date.now()){

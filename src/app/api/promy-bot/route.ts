@@ -2,6 +2,7 @@ import {NextResponse} from 'next/server';
 import {db} from '@/lib/db';
 import {adminAuthorized,sharedId,environment,loadRecord,saveRecord,telegram,webhookSecret} from '@/lib/promy-bot/store';
 import {processJob,receiveUpdate,completeCloudJob} from '@/lib/promy-bot/realtime';
+import {apifyConversationByEmailId} from '@/lib/apify-mail';
 export const runtime='nodejs';
 export const maxDuration=60;
 export const dynamic='force-dynamic';
@@ -9,6 +10,7 @@ export async function POST(req:Request){
  if(!adminAuthorized(req))return NextResponse.json({error:'Unauthorized'},{status:401});
  const env=environment();let b;try{b=await req.json()}catch{return NextResponse.json({error:'Invalid JSON'},{status:400})}
  try{
+  if(b.op==='apifyThread'&&typeof b.emailId==='string')return NextResponse.json(await apifyConversationByEmailId(env,b.emailId));
   if(b.op==='completeJob'&&b.args&&typeof b.args.id==='string')return NextResponse.json(await completeCloudJob(env,b.args));
   if(b.op==='directorySync'){
    if(!Array.isArray(b.records)||b.records.length>1000)throw Error('Invalid directory');

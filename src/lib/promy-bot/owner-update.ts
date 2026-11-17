@@ -64,7 +64,7 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
   if(send[1].toLowerCase()==='cancel'){draft.status='cancelled';await saveRecord(env,'draft:'+draft.id,draft);await tell('Черновик отменён: '+draft.id);return true}
   if(Date.now()-Date.parse(draft.createdAt)>86400000){draft.status='expired';await saveRecord(env,'draft:'+draft.id,draft);await tell('Черновик старше суток. Нужен свежий ответ.');return true}
   const c=await runtime.getThread(draft.emailId),current=c.canonical;
-  assertMailFocus(current);
+  await (runtime.assertFocus||assertMailFocus)(current);
   const state=await loadRecord(env,'threadstate:'+current.thread_id);if(state?.closed||state?.status==='closed'||Date.parse(state?.snoozedUntil||'')>Date.now()){await tell('Переписка закрыта или отложена. Сначала проверь её статус.');return true}
   if(!c.complete||c.thread?.state!=='waiting_on_us'||c.thread.latestMessageId!==current.id||current.eaccount!==draft.eaccount||current.from_address_email!==draft.recipient||current.thread_id!==draft.threadId){draft.status='stale';await saveRecord(env,'draft:'+draft.id,draft);await tell('Переписка изменилась. Подготовь ответ на последнее письмо.');return true}
   if(!readyDraft(draft)){await tell('Этот черновик не готов: проверь заполнение текста и макрос Reply с именем, подписью и баннером. Отправка заблокирована.');return true}

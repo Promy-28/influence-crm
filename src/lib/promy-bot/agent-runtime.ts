@@ -27,7 +27,7 @@ function compact(email){
  for(const key of ['id','thread_id','campaign_id','ue_type','timestamp_email','timestamp_created','from_address_email','to_address_email_list','eaccount','subject','is_auto_reply','step','variant','variant_id','lead','lead_id'])if(email[key]!=null)result[key]=email[key];
  result.body={text:unquotedText(email).slice(0,8000)};return result;
 }
-export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campaigns}) {
+export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campaigns,validateIncoming=assertMailFocus}) {
  const load=id=>loadRecord(env,id),save=(id,v)=>saveRecord(env,id,v);
  async function provider(path,body){const inst=await load('instantly');if(!inst?.key)throw Error('Instantly not connected');return api(inst.key,path,body)}
  async function tell(text,extra={}){const config=await load('telegram');if(!config?.chatId)throw Error('Telegram not connected');return telegram(env,'sendMessage',{chat_id:config.chatId,text:String(text).slice(0,4000),...extra})}
@@ -59,6 +59,7 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
   if(typeof emailId!=='string'||!emailId)throw Error('Email ID required');
   const current=await provider('/emails/'+encodeURIComponent(emailId));
   if(current.id!==emailId||Number(current.ue_type)!==2||!campaigns.includes(current.campaign_id)||!current.thread_id||!current.eaccount||!current.from_address_email)throw Error('Allowed incoming email required');
+  if(validateIncoming!==assertMailFocus)await validateIncoming(current);
   let cursor=null,complete=false;const items=[];
   for(let page=0;page<5;page++){
    const q=new URLSearchParams({search:'thread:'+current.thread_id,limit:'100',preview_only:'false',mode:'emode_all',sort_order:'desc'});if(cursor)q.set('starting_after',cursor);
@@ -77,12 +78,12 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
   }).filter(e=>e.score>0).sort((a,b)=>b.score-a.score).slice(0,3).map(({score,...e})=>e);
   return {complete,canonical:compact(current),thread,persona:OWNER_PERSONA,referenceReplies,referenceWarning:'Historical examples retrieved by keyword overlap. Their budgets, rights and scope are specific to those creators, not authority for a new promise.'};
  }
- async function enqueueJob({id,text,emailId=null,source='telegram',replyToMessageId=null}){
+ async function enqueueJob({id,text,emailId=null,source='telegram',replyToMessageId=null,mailSource='reddit',creatorId=null}){
   if(typeof id!=='string'||!id||id.length>200||typeof text!=='string'||!text.trim()||text.length>12000)throw Error('Invalid job');
   const queue=await load('agent_jobs')||{items:[]};const existing=queue.items.find(j=>j.id===id);if(existing)return existing;
   // Never evict unfinished work to silently make room.
   if(queue.items.length>=100){queue.items=queue.items.filter(j=>j.status==='new'||j.status==='delivering'||j.status==='uncertain');if(queue.items.length>=100)throw Error('Agent queue is full')}
-  const job={id,text:text.trim(),emailId,source,replyToMessageId,status:'new',createdAt:iso()};queue.items.push(job);await save('agent_jobs',queue);return job;
+  const job={id,text:text.trim(),emailId,source,mailSource,creatorId,replyToMessageId,status:'new',createdAt:iso()};queue.items.push(job);await save('agent_jobs',queue);return job;
  }
  async function resolveContact(address){
   address=String(address).trim().toLowerCase();if(contactEmails(address)[0]!==address)throw Error('Invalid contact email');
@@ -134,16 +135,16 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
   if(draftBody.trim()&&!requiresClarification){
    if(!job.emailId)throw Error('Job has no canonical email');
    const context=await getThread(job.emailId),email=context.canonical;
-   assertMailFocus(email);
+   await validateIncoming(email);
    if(!context.complete||context.thread?.state!=='waiting_on_us'||context.thread.latestMessageId!==email.id)throw Error('Thread incomplete, stale or suppressed');
    const threadState=await load('threadstate:'+email.thread_id);if(threadState?.closed||threadState?.status==='closed'||Date.parse(threadState?.snoozedUntil||'')>Date.now())throw Error('Thread closed or snoozed');
    const draftId=crypto.randomUUID().slice(0,8);draft={id:draftId,status:'draft',createdAt:iso(),emailId:email.id,campaign:email.campaign_id,threadId:email.thread_id,eaccount:email.eaccount,recipient:email.from_address_email,subject:/^re:/i.test(email.subject||'')?email.subject:'Re: '+(email.subject||''),body:draftBody.trim()};
    Object.assign(draft,await composeReplyMacro(provider,{body:draft.body,recipient:draft.recipient,eaccount:draft.eaccount,campaignId:draft.campaign}));
-   draft.incomingText=unquotedText(email).slice(0,8000);draft.incomingAt=email.timestamp_email||email.timestamp_created;draft.jobId=job.id;draft.source=job.source;draft.summary=answer.trim();
+   draft.incomingText=unquotedText(email).slice(0,8000);draft.incomingAt=email.timestamp_email||email.timestamp_created;draft.jobId=job.id;draft.source=job.source;draft.mailSource=job.mailSource||'reddit';draft.creatorId=job.creatorId||null;draft.summary=answer.trim();
    await save('draft:'+draft.id,draft);job.draftId=draft.id;
   }
   job.status='delivering';job.answer=answer.trim();job.reason=reason;job.requiresClarification=!!requiresClarification;job.processedAt=iso();await save('agent_jobs',queue);
-  if(job.source==='hub_batch'){if(job.emailId)await save('decision:'+job.emailId,{id:'decision:'+job.emailId,emailId:job.emailId,status:draft?'resolved':'needs_decision',answer:job.answer,context:job.hubContext,requiresClarification:!draft,createdAt:iso()});job.status='completed';await save('agent_jobs',queue);return {id,status:job.status,draftId:draft?.id||null}}
+  if(job.source==='hub_batch'){if(job.emailId)await save('decision:'+job.emailId,{id:'decision:'+job.emailId,emailId:job.emailId,status:draft?'resolved':'needs_decision',answer:job.answer,context:job.hubContext,mailSource:job.mailSource||'reddit',creatorId:job.creatorId||null,requiresClarification:!draft,createdAt:iso()});job.status='completed';await save('agent_jobs',queue);return {id,status:job.status,draftId:draft?.id||null}}
   const text=draft?draftCard(draft,answer.trim()):answer.trim()||'Нужно уточнение перед подготовкой ответа.';
   try{
    const extra=draft?{reply_markup:{inline_keyboard:[[{text:'Отправить',callback_data:'send:'+draft.id},{text:'Отменить',callback_data:'cancel:'+draft.id}],[{text:'Показать письмо с баннером',url:'https://influence-crm-ashy.vercel.app/inbox?source=reddit&email='+encodeURIComponent(draft.recipient)+'&job='+encodeURIComponent(job.id)}]]}}:{};
@@ -188,5 +189,5 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
   if(!digest||link?.digestId!==id)throw Error('Digest message does not match');
   return telegram(env,'editMessageText',{chat_id:config.chatId,message_id:messageId,...digestPage(digest,page)});
  }
- return {syncHistory,getAnalysis,getJobs,completeJob,enqueueJob,reminders,getThread,pageDigest,resolveContact};
+ return {assertFocus:validateIncoming,syncHistory,getAnalysis,getJobs,completeJob,enqueueJob,reminders,getThread,pageDigest,resolveContact};
 }

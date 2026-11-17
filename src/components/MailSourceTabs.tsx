@@ -1,0 +1,2 @@
+import type {MailSource} from '@/lib/mail-source';
+export default function MailSourceTabs({source,area}:{source:MailSource;area:'inbox'|'drafts'}){return <nav className="tabs" aria-label="Источник писем">{[['reddit','Reddit / форма'],['apify','Apify']].map(([value,label])=><a key={value} className={'tab '+(source===value?'on':'')} aria-current={source===value?'page':undefined} href={'/'+area+'?source='+value}>{label}</a>)}</nav>}
