@@ -1,3 +1,4 @@
+import {composeReplyMacro} from "./promy-bot/reply-macro";
 import "server-only";
 import { createHmac } from "node:crypto";
 import { db, log } from "./db";
@@ -216,7 +217,8 @@ export async function replyByEmail(creatorId: string, raw: string) {
   if (!uuid) { const t = await findThread(creatorId, c.email!); uuid = t?.id ?? null; eaccount = t?.eaccount ?? eaccount; subject = t?.subject ?? subject; }
   if (!uuid || !eaccount) throw new Error("Не нашёл переписку в Instantly: ответь из Unibox");
   const subj = /^re:/i.test(subject ?? "") ? subject : `Re: ${subject ?? ""}`.trim();
-  await inst("/api/v2/emails/reply", { method: "POST", body: JSON.stringify({ eaccount, reply_to_uuid: uuid, subject: subj, body: { text, html: toHtml(text) } }) });
+  const formatted=await composeReplyMacro((path,body)=>inst("/api/v2"+path,body?{method:"POST",body:JSON.stringify(body)}:{}),{body:text,recipient:c.email!,eaccount:eaccount!});
+  await inst("/api/v2/emails/reply", { method: "POST", body: JSON.stringify({ eaccount, reply_to_uuid: uuid, subject: subj, body: { text:formatted.body, html:formatted.html } }) });
   await db.from("messages").insert({ creator_id: creatorId, direction: "out", subject: subj, body: text, eaccount, via: "reply" });
   await db.from("creators").update({ needs_reply: false }).eq("id", creatorId);
 }
@@ -266,3 +268,4 @@ export async function mailboxHealth(apply = false) {
   if (paused.length) { await log("mailbox_paused", `Поставлены на паузу из-за баунсов: ${paused.join(", ")}`, null, by, "Ящики"); const { pingEvent } = await import("./notify"); await pingEvent("Ящики на паузе из-за баунсов", paused.join(", ")); }
   return { by, paused };
 }
+

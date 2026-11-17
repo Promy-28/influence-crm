@@ -6,3 +6,4 @@ export function dialogueAction(text:string):'confirm'|'cancel'|'revise'|'other'{
  return 'other';
 }
 export async function draftFingerprint(body:string){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(body)))).map(b=>b.toString(16).padStart(2,'0')).join('')}
+export const shownDraftFingerprint=(draft:{body:string;html?:string})=>draftFingerprint(JSON.stringify([draft.body,draft.html||'']));

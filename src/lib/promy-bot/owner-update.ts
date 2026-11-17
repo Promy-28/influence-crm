@@ -4,7 +4,7 @@
 import {contactEmails} from './agent-runtime';
 import {unquotedText} from './mail-analysis';
 import {loadRecord,saveRecord,telegram,api} from './store';
-import {dialogueAction,draftFingerprint} from './dialogue-actions';
+import {dialogueAction,shownDraftFingerprint} from './dialogue-actions';
 const plainEmail=unquotedText;
 const ownerMessage=(m,c)=>!!m&&m.chat?.type==='private'&&m.chat.id===c.chatId&&m.from?.id===c.userId&&!m.from?.is_bot;
 const creatorIntake=()=>({handleCallback:async()=>false});
@@ -20,13 +20,13 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
  let text=m.text.trim();
  let linked=m.reply_to_message?.message_id?await loadRecord(env,'tgmsg:'+m.reply_to_message.message_id):null;
  const action=dialogueAction(text);
- if(action==='revise'&&linked?.draftId){const shown=await loadRecord(env,'draft:'+linked.draftId);if(shown?.status==='draft')await saveRecord(env,'owner_draft_context',{draftId:shown.id,emailId:shown.emailId,bodyHash:await draftFingerprint(shown.body),shownAt:shown.createdAt,pendingRevision:false})}
+ if(action==='revise'&&linked?.draftId){const shown=await loadRecord(env,'draft:'+linked.draftId);if(shown?.status==='draft')await saveRecord(env,'owner_draft_context',{draftId:shown.id,emailId:shown.emailId,bodyHash:await shownDraftFingerprint(shown),shownAt:shown.createdAt,pendingRevision:false})}
  if(action==='confirm'||action==='cancel'){
   const active=await loadRecord(env,'owner_draft_context'),draftId=linked?.draftId||active?.draftId;
   if(!draftId){await tell('Сначала нужен показанный черновик. Напиши, кому и что ответить.');return true}
   if(!linked?.draftId){
    const draft=await loadRecord(env,'draft:'+draftId),contact=await loadRecord(env,'owner_mail_context');
-   if(!draft||active.pendingRevision||active.emailId!==draft.emailId||(linked?.emailId&&linked.emailId!==draft.emailId)||(contact?.emailId&&contact.emailId!==draft.emailId)||active.bodyHash!==await draftFingerprint(draft.body)){await tell('Черновик изменился или сейчас выбран другой креатор. Сначала покажу актуальный текст; старый не отправляю.');return true}
+   if(!draft||active.pendingRevision||active.emailId!==draft.emailId||(linked?.emailId&&linked.emailId!==draft.emailId)||(contact?.emailId&&contact.emailId!==draft.emailId)||active.bodyHash!==await shownDraftFingerprint(draft)){await tell('Черновик изменился или сейчас выбран другой креатор. Сначала покажу актуальный текст; старый не отправляю.');return true}
   }
   text='/'+(action==='confirm'?'send':'cancel')+' '+draftId;
  }
@@ -63,8 +63,9 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
   if(Date.now()-Date.parse(draft.createdAt)>86400000){draft.status='expired';await saveRecord(env,'draft:'+draft.id,draft);await tell('Черновик старше суток. Нужен свежий ответ.');return true}
   const c=await runtime.getThread(draft.emailId),current=c.canonical;
   if(!c.complete||c.thread?.state!=='waiting_on_us'||c.thread.latestMessageId!==current.id||current.eaccount!==draft.eaccount||current.from_address_email!==draft.recipient||current.thread_id!==draft.threadId){draft.status='stale';await saveRecord(env,'draft:'+draft.id,draft);await tell('Переписка изменилась. Подготовь ответ на последнее письмо.');return true}
+  if(draft.macroName!=='Reply'||!draft.html){await tell('Этот старый черновик без макроса Reply. Сначала подготовлю новую версию с именем, подписью и баннером.');return true}
   draft.status='sending';await saveRecord(env,'draft:'+draft.id,draft);
-  try{const result=await api(inst.key,'/emails/reply',{eaccount:draft.eaccount,reply_to_uuid:draft.emailId,subject:draft.subject,body:{text:draft.body}});draft.status='sent';draft.sentId=result.id;draft.sentAt=new Date().toISOString();await saveRecord(env,'draft:'+draft.id,draft)}catch{draft.status='uncertain';await saveRecord(env,'draft:'+draft.id,draft);await tell('Результат '+draft.id+' нужно проверить в Instantly. Автоповтор отключён.');return true}
+  try{const result=await api(inst.key,'/emails/reply',{eaccount:draft.eaccount,reply_to_uuid:draft.emailId,subject:draft.subject,body:{text:draft.body,html:draft.html}});draft.status='sent';draft.sentId=result.id;draft.sentAt=new Date().toISOString();await saveRecord(env,'draft:'+draft.id,draft)}catch{draft.status='uncertain';await saveRecord(env,'draft:'+draft.id,draft);await tell('Результат '+draft.id+' нужно проверить в Instantly. Автоповтор отключён.');return true}
   // A failed Telegram confirmation must not turn an already-sent email into an uncertain send.
   await tell('Отправлено в исходную переписку. Черновик '+draft.id+'.');return true;
  }

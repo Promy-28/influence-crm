@@ -7,6 +7,7 @@ import {mailSnapshot} from '../hub-data';
 import {mailIntent,mailOverview,overviewText,choosePending} from './mail-workflow';
 import {dialogueAction} from './dialogue-actions';
 const runtime=(env:StoreEnv)=>createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campaigns});
+export const completeCloudJob=(env:StoreEnv,args:Parameters<ReturnType<typeof runtime>['completeJob']>[0])=>runtime(env).completeJob(args);
 export async function processJob(env:StoreEnv,id:string){
  const q=await loadRecord(env,'agent_jobs'),job=q?.items?.find((j:{id:string})=>j.id===id);
  if(!job||job.status!=='new')return {processed:false};
@@ -16,7 +17,7 @@ export async function processJob(env:StoreEnv,id:string){
  if(revision&&activeDraft?.draftId){
   const old=await loadRecord(env,'draft:'+activeDraft.draftId);
   if(old&&(!job.emailId||job.emailId===old.emailId)&&['draft','revision_requested'].includes(old.status)){
-   previousDraft={recipient:old.recipient,body:old.body};job.emailId=old.emailId;
+   previousDraft={recipient:old.recipient,body:old.replyContent||old.body};job.emailId=old.emailId;
    const queue=await loadRecord(env,'agent_jobs');queue.items.find((j:any)=>j.id===id).emailId=old.emailId;await saveRecord(env,'agent_jobs',queue);
    old.status='revision_requested';await saveRecord(env,'draft:'+old.id,old);await saveRecord(env,'owner_draft_context',{...activeDraft,pendingRevision:true});
   }
