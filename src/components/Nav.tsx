@@ -2,8 +2,8 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { logout } from "@/lib/actions";
-const main: [string,string][] = [['/','Dashboard'],['/creators','Креаторы'],['/inbox','Почта'],['/drafts','Черновики']];
-const tools: [string,string][] = [['/review','Проверка креаторов'],['/sourcing','Поиск'],['/tests','Тесты писем'],['/analytics','Аналитика']];
+const main: [string,string][] = [['/','Dashboard'],['/creators','Креаторы'],['/review','Отбор креаторов'],['/inbox','Почта'],['/drafts','Черновики'],['/tests','Тесты A/B']];
+const tools: [string,string][] = [['/sourcing','Поиск'],['/analytics','Аналитика']];
 const more: [string,string][] = [['/guide','Как пользоваться'],['/import','Импорт'],['/mailboxes','Ящики'],['/log','Журнал'],['/settings','Настройки']];
 const on = (p: string, h: string) => (h === "/" ? p === "/" : p.startsWith(h));
 export function Nav({ counts,source }: { counts: Record<string, number>;source: "apify"|"reddit" }) {
