@@ -5,6 +5,7 @@ test('model output is bounded and cannot specify recipient, send action or draft
  assert.throws(()=>validateBotAnswer({answer:'a',draftBody:'x'.repeat(2801),requiresClarification:false}),/INVALID/);
  assert.throws(()=>validateBotAnswer({answer:'a',draftBody:'Hello',requiresClarification:'false'}),/INVALID/);
  assert.equal(validateBotAnswer({answer:'Accept the new rate?',draftBody:'We accept $65.',requiresClarification:true}).draftBody,'');
+ assert.equal(validateBotAnswer({answer:'Готово',draftBody:'Here is the brief: [Insert brief details here]',requiresClarification:false}).requiresClarification,true);
 });
 test('free model returns a draft with store disabled and no paid fallback on quota',async()=>{
  const key=process.env.GEMINI_API_KEY,free=process.env.GEMINI_FREE_PROJECT_CONFIRMED;

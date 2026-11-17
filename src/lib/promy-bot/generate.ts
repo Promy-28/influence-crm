@@ -1,7 +1,9 @@
+import {hasUnresolvedPlaceholder} from './draft-content.ts';
 export type BotAnswer={answer:string;draftBody:string;requiresClarification:boolean};
 export function validateBotAnswer(value:unknown):BotAnswer{
  const v=value as BotAnswer;
  if(!v||typeof v.answer!=='string'||v.answer.length>3500||typeof v.draftBody!=='string'||v.draftBody.length>2800||typeof v.requiresClarification!=='boolean')throw Error('BOT_MODEL_INVALID');
+ if(hasUnresolvedPlaceholder(v.draftBody))return {answer:v.answer+'\nДля готового письма не хватает конкретных данных: ссылка на бриф или условия. Укажи их — подготовлю ответ без заглушек.',draftBody:'',requiresClarification:true};
  return {...v,draftBody:v.requiresClarification?'':v.draftBody};
 }
 export async function generateAnswer(input:unknown,fetcher:typeof fetch=fetch):Promise<BotAnswer>{

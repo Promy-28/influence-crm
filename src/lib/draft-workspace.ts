@@ -8,7 +8,7 @@ import {mailSnapshot} from './hub-data';
 import {pendingThreads} from './promy-bot/mail-workflow';
 import {MAIL_FOCUS} from './promy-bot/mail-focus';
 import {renderReplyMacro} from './promy-bot/reply-macro';
-import {approvalToken,validDraftApproval,readyDraft,latestDrafts} from './draft-approval';
+import {approvalToken,validDraftApproval,readyDraft,editableDraft,latestDrafts} from './draft-approval';
 const runtime=(env:ReturnType<typeof environment>):any=>createAgentRuntime({env,loadRecord,saveRecord,telegram,api,campaigns});
 async function records(){return (await all<any>((from,to)=>db.from('promy_bot_records').select('id,value').like('id','draft:%').order('id').range(from,to))).map(r=>decodeRecord(r.value)).filter(d=>d.campaign===MAIL_FOCUS.campaign)}
 export async function draftWorkspace(){
@@ -17,7 +17,7 @@ export async function draftWorkspace(){
  const saved=decisions.map(r=>decodeRecord(r.value)).filter(d=>d.status==='needs_decision').map(d=>({...d,status:'completed'}));
  const savedIds=new Set(saved.map(d=>d.emailId));
  const jobs=(queue?.items||[]).filter((j:any)=>j.source==='hub_batch'&&(j.status!=='completed'||!j.draftId&&!savedIds.has(j.emailId))).map((j:any)=>({id:j.id,emailId:j.emailId,status:j.status,answer:j.answer||'',error:j.prepareError||'',context:j.hubContext||null,requiresClarification:!!j.requiresClarification}));
- return {drafts:visible.map(d=>({...d,ready:readyDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs],focus:MAIL_FOCUS.label};
+ return {drafts:visible.map(d=>({...d,ready:readyDraft(d),editable:editableDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs],focus:MAIL_FOCUS.label};
 }
 export async function queueDraftBatch(limit=30){
  limit=Math.max(1,Math.min(30,Math.floor(limit)||30));
@@ -39,7 +39,7 @@ export async function prepareNextDraft(){
 }
 export async function editWorkspaceDraft(id:string,token:unknown,body:string){
  const env=environment(),d=await loadRecord(env,'draft:'+id);
- if(!d||!readyDraft(d)||!validDraftApproval(d,token,process.env.APP_PASSWORD!))throw Error('Черновик изменился или устарел. Обнови страницу.');
+ if(!d||!editableDraft(d)||!validDraftApproval(d,token,process.env.APP_PASSWORD!))throw Error('Черновик изменился или устарел. Обнови страницу.');
  if(!body.trim()||body.length>2800)throw Error('Нужен текст от 1 до 2800 символов.');
  Object.assign(d,renderReplyMacro({body,firstName:d.macroFirstName,signature:d.signatureHtml}),{editedAt:new Date().toISOString()});await saveRecord(env,'draft:'+id,d);return {saved:true};
 }
