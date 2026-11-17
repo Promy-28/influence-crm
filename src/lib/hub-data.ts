@@ -15,7 +15,11 @@ export const campaignHistory=cache(async():Promise<any>=>{
  if(error||data?.length!==ids.length)throw Error('История загружена не полностью');
  return {complete:true,syncedAt:active.syncedAt,emails:data.flatMap((r:{value:string})=>decodeRecord(r.value).items||[])};
 });
-export const mailSnapshot=cache(async():Promise<any>=>focusSnapshot(await campaignHistory()));
+export const mailSnapshot=cache(async():Promise<any>=>{
+ const snapshot=focusSnapshot(await campaignHistory());
+ for(const thread of snapshot.threads as any[]){if(thread.sender)continue;const original=snapshot.emails.find((e:any)=>e.thread_id===thread.id&&e.eaccount===thread.account);thread.sender=String(original?.lead||original?.to_address_email_list||'').match(/[^\s,;<>]+@[^\s,;<>]+/)?.[0]||'Адрес не определён'}
+ return snapshot;
+});
 export const creatorCampaigns=cache(async()=>{
  const [history,archived,rows]=await Promise.all([campaignHistory(),loadRecord(environment(),'campaign_membership'),all<any>((f,t)=>db.from('creators').select('email,inst_campaign_id').not('inst_campaign_id','is',null).range(f,t))]);
  const result=new Map<string,Set<string>>();const add=(email:string,id:string)=>{if(!email||!id)return;const k=email.toLowerCase();if(!result.has(k))result.set(k,new Set());result.get(k)!.add(id)};
