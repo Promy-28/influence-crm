@@ -37,10 +37,12 @@ export async function prepareHubReply(f:FormData){
 export async function sendHubReply(f:FormData){
  await requireSession();const id=String(f.get('draftId')||'');if(!/^[a-f0-9]{8}$/.test(id))throw Error('Неверный черновик');
  const env=environment(),draft=await loadRecord(env,'draft:'+id);if(!draft)throw Error('Черновик не найден');
+ const edited=f.get('body');if(typeof edited==='string'&&draft.status==='draft'){if(!edited.trim()||edited.length>2800)throw Error('Ответ должен содержать от 1 до 2800 символов');draft.body=edited.trim();await saveRecord(env,'draft:'+id,draft)}
  const config=await loadRecord(env,'telegram'),inst=await loadRecord(env,'instantly');
  await processOwnerUpdate({update_id:Date.now(),message:{message_id:0,chat:{id:config.chatId,type:'private'},from:{id:config.userId,is_bot:false},text:'/send '+id}},config,inst,env,(text:string,extra={})=>telegram(env,'sendMessage',{chat_id:config.chatId,text,...extra}),runtime(env));
  const fresh=await loadRecord(env,'draft:'+id);revalidatePath('/inbox');go('/inbox?source=reddit&email='+encodeURIComponent(draft.recipient),fresh.status==='sent'?'Письмо отправлено в исходную переписку.':'Статус: '+fresh.status+'. Подробности отправлены в Telegram. Повторной отправки нет.');
 }
+export async function cancelHubReply(f:FormData){await requireSession();const id=String(f.get('draftId')||''),env=environment(),draft=await loadRecord(env,'draft:'+id);if(draft?.status==='draft'){draft.status='cancelled';await saveRecord(env,'draft:'+id,draft)}revalidatePath('/inbox');go('/inbox?source=reddit&email='+encodeURIComponent(draft?.recipient||''),'Черновик отменён. Письмо не отправлено.');}
 export async function refreshRedditMail(){await requireSession();const result=await runtime(environment()).syncHistory({maxPages:20});revalidatePath('/inbox');go('/inbox?source=reddit',result.complete?'История обновлена.':'Загружена часть истории. Нажми «Обновить» ещё раз, чтобы продолжить. Предыдущий полный снимок сохранён.');}
 export async function importRedditCreators(f:FormData){
  await requireSession();let text=String(f.get('text')||'');const file=f.get('file');
