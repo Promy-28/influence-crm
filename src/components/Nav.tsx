@@ -8,6 +8,7 @@ const more: [string,string][] = [['/guide','Как пользоваться'],['
 const on = (p: string, h: string) => (h === "/" ? p === "/" : p.startsWith(h));
 export function Nav({ counts,source }: { counts: Record<string, number>;source: "apify"|"reddit" }) {
   const p = usePathname();
+  if(p.startsWith('/social/'))return <SocialNav path={p}/>;
   const item = ([h, l]: [string, string]) => <a key={h} href={h} className={on(p, h) ? "nav-i on" : "nav-i"}><span>{l}</span>{counts[h] ? <span className="count">{counts[h]}</span> : null}</a>;
   return <><MobileBar counts={counts} p={p} source={source}/><nav className="nav"><div className="nav-h">Работа</div>{main.map(item)}
     {source==='apify'&&<details className="nav-more" open={tools.some(([h])=>on(p,h))}><summary className="nav-i">Инструменты Apify</summary><div className="nav-more-in">{tools.map(item)}</div></details>}
@@ -24,3 +25,8 @@ function MobileBar({ counts, p, source }: { counts: Record<string, number>; p: s
   </>;
 }
 
+
+function SocialNav({path}:{path:string}){
+ const platform=path.startsWith('/social/threads')?'threads':'reddit',root='/social/'+platform;
+ return <nav className="nav social-nav"><div className="nav-h">{platform==='threads'?'Threads':'Reddit · постинг'}</div>{[['posting','Постинг'],['warmup','Прогрев'],['comments','Комментарии']].map(([tab,label])=><a className="nav-i" href={root+'?tab='+tab} key={tab}>{label}</a>)}<div className="nav-h">Хаб креаторов</div><a className="nav-i" href="/">Dashboard</a><a className="nav-i" href="/guide">Как пользоваться</a></nav>;
+}
