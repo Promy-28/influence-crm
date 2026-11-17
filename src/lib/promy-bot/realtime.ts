@@ -5,12 +5,22 @@ import {generateAnswer} from './generate';
 import playbook from './playbook.json';
 import {mailSnapshot} from '../hub-data';
 import {mailIntent,mailOverview,overviewText,choosePending} from './mail-workflow';
+import {dialogueAction} from './dialogue-actions';
 const runtime=(env:StoreEnv)=>createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campaigns});
 export async function processJob(env:StoreEnv,id:string){
  const q=await loadRecord(env,'agent_jobs'),job=q?.items?.find((j:{id:string})=>j.id===id);
  if(!job||job.status!=='new')return {processed:false};
  const r=runtime(env);let context:Awaited<ReturnType<typeof r.getThread>>|null=null;
- const priorWalk=await loadRecord(env,'owner_mail_walk'),intent=mailIntent(job.text,!!priorWalk);
+ const priorWalk=await loadRecord(env,'owner_mail_walk'),revision=dialogueAction(job.text)==='revise',intent=revision?'contact':mailIntent(job.text,!!priorWalk);
+ const activeDraft=await loadRecord(env,'owner_draft_context');let previousDraft:{recipient:string;body:string}|null=null;
+ if(revision&&activeDraft?.draftId){
+  const old=await loadRecord(env,'draft:'+activeDraft.draftId);
+  if(old&&(!job.emailId||job.emailId===old.emailId)&&['draft','revision_requested'].includes(old.status)){
+   previousDraft={recipient:old.recipient,body:old.body};job.emailId=old.emailId;
+   const queue=await loadRecord(env,'agent_jobs');queue.items.find((j:any)=>j.id===id).emailId=old.emailId;await saveRecord(env,'agent_jobs',queue);
+   old.status='revision_requested';await saveRecord(env,'draft:'+old.id,old);await saveRecord(env,'owner_draft_context',{...activeDraft,pendingRevision:true});
+  }
+ }
  let overview:ReturnType<typeof mailOverview>|null=null,walk:any=null;
  if(!job.emailId||intent!=='contact'){
   const snapshot=await mailSnapshot();if(!snapshot.complete)throw Error('BOT_HISTORY_INCOMPLETE');overview=mailOverview(snapshot);
@@ -27,8 +37,8 @@ export async function processJob(env:StoreEnv,id:string){
  }
  if(job.emailId&&!context)context=await r.getThread(job.emailId,{includeReferences:false});
  if(job.emailId&&!context?.complete)throw Error('BOT_THREAD_INCOMPLETE');
- const result=await generateAnswer({ownerInstruction:walk?'Разбираем неотвеченные письма по порядку. По полной реальной ветке кратко объясни по-русски: что хочет креатор, где остановились и что предлагаешь ответить. Подготовь уместный английский черновик. Если для цены/условий нужно решение владельца — задай конкретный вопрос, не проси прислать историю. Исходный запрос: '+job.text:job.text,conversation:context,mailAnalytics:overview,policy:playbook,missingContact:!job.emailId});
- if(walk&&context){result.answer=(overview?overviewText(overview)+'\n\n':'')+'Разбор · '+(context as any).canonical.from_address_email+'\n'+result.answer+'\n\nМожно уточнить ответ или перейти к следующему письму сообщением «дальше». Для отправки нажми кнопку у черновика.';result.answer=result.answer.slice(0,3500)}
+ const result=await generateAnswer({ownerInstruction:walk?'Разбираем неотвеченные письма по порядку. По полной реальной ветке кратко объясни по-русски: что хочет креатор, где остановились и что предлагаешь ответить. Подготовь уместный английский черновик. Если для цены/условий нужно решение владельца — задай конкретный вопрос, не проси прислать историю. Исходный запрос: '+job.text:revision?'Исправь previousDraft по инструкции владельца, сохраняя остальные согласованные факты. Верни полный новый английский черновик, не только комментарий. Правка: '+job.text:job.text,previousDraft,conversation:context,mailAnalytics:overview,policy:playbook,missingContact:!job.emailId});
+ if(walk&&context){result.answer=(overview?overviewText(overview)+'\n\n':'')+'Разбор · '+(context as any).canonical.from_address_email+'\n'+result.answer+'\n\nМожно уточнить ответ или перейти к следующему письму сообщением «дальше». Для отправки напиши «отправляй» после просмотра черновика.';result.answer=result.answer.slice(0,3500)}
  if(result.draftBody&&!job.emailId){result.draftBody='';result.requiresClarification=true;result.answer='С кем работаем? Напиши email креатора или ответь на сообщение с нужной перепиской.'}
  const completed=await r.completeJob({id,...result});
  if(walk&&context&&completed.status==='completed')await saveRecord(env,'owner_mail_walk',{...walk,seen:[...new Set([...walk.seen,(context as any).thread.id])],currentEmailId:job.emailId,updatedAt:new Date().toISOString()});
@@ -36,10 +46,11 @@ export async function processJob(env:StoreEnv,id:string){
 }
 // Telegram transport payload is validated against the bound owner before use.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function receiveUpdate(update:any){
+export async function receiveUpdate(update:any,options:{allowSend?:boolean}={}){
  const env=environment(),config=await loadRecord(env,'telegram');const m=update.callback_query?{...update.callback_query.message,from:update.callback_query.from}:update.message;
  if(!config||m?.chat?.type!=='private'||m.chat.id!==config.chatId||m.from?.id!==config.userId||m.from.is_bot)return {ignored:true};
  if(!Number.isSafeInteger(update.update_id))return {ignored:true};
+ if(options.allowSend===false&&dialogueAction(update.message?.text||'')==='confirm')return {ok:false,error:'OWNER_CONFIRMATION_MUST_COME_FROM_TELEGRAM'};
  // Insert-only claim: Telegram retries cannot repeat confirmations or a generated answer.
  const eventId='event:'+update.update_id;
  if(await loadRecord(env,eventId))return {duplicate:true};

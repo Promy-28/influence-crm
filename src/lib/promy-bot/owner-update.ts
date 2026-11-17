@@ -4,10 +4,11 @@
 import {contactEmails} from './agent-runtime';
 import {unquotedText} from './mail-analysis';
 import {loadRecord,saveRecord,telegram,api} from './store';
+import {dialogueAction,draftFingerprint} from './dialogue-actions';
 const plainEmail=unquotedText;
 const ownerMessage=(m,c)=>!!m&&m.chat?.type==='private'&&m.chat.id===c.chatId&&m.from?.id===c.userId&&!m.from?.is_bot;
 const creatorIntake=()=>({handleCallback:async()=>false});
-const BOT_HELP='На связи. Пиши обычным текстом, команды не нужны.\n\n«creator@example.com — что она писала?»\n«Ответь ей, спроси стоимость одного видео»\n«Что у нас с переписками?»\n\nПосле выбора креатора можно продолжать вопросами про неё. Для другой переписки укажи новый email или ответь на нужное сообщение. Черновики отправляются только после твоего подтверждения кнопкой. Сообщения обрабатываются сразу; фоновые проверки — раз в час.';
+const BOT_HELP='На связи. Пиши обычным текстом, команды не нужны.\n\n«creator@example.com — что она писала?»\n«Ответь ей, спроси стоимость одного видео»\n«Что у нас с переписками?»\n\nПосле выбора креатора можно продолжать вопросами про неё. Для другой переписки укажи новый email или ответь на нужное сообщение. Черновики отправляются после сообщения «отправляй» или подтверждения кнопкой. Сообщения обрабатываются сразу; фоновые проверки — раз в час.';
 export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
  const callback=update.callback_query;
  const m=callback?{...callback.message,from:callback.from,text:callback.data?.replace(/^(send|cancel):([a-f0-9]{8})$/,'/$1 $2')}:update.message;
@@ -18,6 +19,17 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
  if(callback&&await creatorIntake(env).handleCallback(callback.data))return true;
  let text=m.text.trim();
  let linked=m.reply_to_message?.message_id?await loadRecord(env,'tgmsg:'+m.reply_to_message.message_id):null;
+ const action=dialogueAction(text);
+ if(action==='revise'&&linked?.draftId){const shown=await loadRecord(env,'draft:'+linked.draftId);if(shown?.status==='draft')await saveRecord(env,'owner_draft_context',{draftId:shown.id,emailId:shown.emailId,bodyHash:await draftFingerprint(shown.body),shownAt:shown.createdAt,pendingRevision:false})}
+ if(action==='confirm'||action==='cancel'){
+  const active=await loadRecord(env,'owner_draft_context'),draftId=linked?.draftId||active?.draftId;
+  if(!draftId){await tell('Сначала нужен показанный черновик. Напиши, кому и что ответить.');return true}
+  if(!linked?.draftId){
+   const draft=await loadRecord(env,'draft:'+draftId),contact=await loadRecord(env,'owner_mail_context');
+   if(!draft||active.pendingRevision||active.emailId!==draft.emailId||(contact?.emailId&&contact.emailId!==draft.emailId)||active.bodyHash!==await draftFingerprint(draft.body)){await tell('Черновик изменился или сейчас выбран другой креатор. Сначала покажу актуальный текст; старый не отправляю.');return true}
+  }
+  text='/'+(action==='confirm'?'send':'cancel')+' '+draftId;
+ }
  const page=callback?.data?.match(/^page:([a-f0-9]{8}):(\d{1,2})$/);
  if(page){await runtime.pageDigest(page[1],Number(page[2]),m.message_id);return true}
  const pick=callback?.data?.match(/^pick:([a-f0-9]{8}):(\d{1,2})$/);
@@ -68,6 +80,9 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
   }else emailId=null;
  }else if(!emailId&&/\b(she|her|he|him|they)\b|она|она\b|её|ее\b|ей\b|ему\b|он\b|этот|эта|ответь|напиши|скажи|черновик/i.test(text)){
   const active=await loadRecord(env,'owner_mail_context');if(active?.emailId&&Date.now()-Date.parse(active.at)<86400000)emailId=active.emailId;
+ }
+ if(!emailId&&action==='revise'){
+  const active=await loadRecord(env,'owner_draft_context');if(active?.emailId)emailId=active.emailId;
  }
  if(emailId)await saveRecord(env,'owner_mail_context',{emailId,at:new Date().toISOString()});
  const id='telegram:'+update.update_id;
