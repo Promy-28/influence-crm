@@ -3,16 +3,36 @@ import {processOwnerUpdate} from './owner-update';
 import {api,telegram,loadRecord,saveRecord,environment,campaigns,type StoreEnv} from './store';
 import {generateAnswer} from './generate';
 import playbook from './playbook.json';
+import {mailSnapshot} from '../hub-data';
+import {mailIntent,mailOverview,overviewText,choosePending} from './mail-workflow';
 const runtime=(env:StoreEnv)=>createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campaigns});
 export async function processJob(env:StoreEnv,id:string){
  const q=await loadRecord(env,'agent_jobs'),job=q?.items?.find((j:{id:string})=>j.id===id);
  if(!job||job.status!=='new')return {processed:false};
  const r=runtime(env);let context:Awaited<ReturnType<typeof r.getThread>>|null=null;
- if(job.emailId)context=await r.getThread(job.emailId,{includeReferences:false});
+ const priorWalk=await loadRecord(env,'owner_mail_walk'),intent=mailIntent(job.text,!!priorWalk);
+ let overview:ReturnType<typeof mailOverview>|null=null,walk:any=null;
+ if(!job.emailId||intent!=='contact'){
+  const snapshot=await mailSnapshot();if(!snapshot.complete)throw Error('BOT_HISTORY_INCOMPLETE');overview=mailOverview(snapshot);
+  if(intent==='analytics'){if(!priorWalk)await saveRecord(env,'owner_mail_walk',{seen:[],startedAt:new Date().toISOString()});const queue=await loadRecord(env,'agent_jobs');queue.items.find((j:any)=>j.id===id).emailId=null;await saveRecord(env,'agent_jobs',queue);return {processed:true,...await r.completeJob({id,answer:overviewText(overview)+'\n\nСамые старые неотвеченные:\n'+overview.oldest.map((t:any,i:number)=>(i+1)+'. '+t.email+' · '+new Date(t.lastMessageAt).toLocaleDateString('ru-RU',{timeZone:'America/New_York'})).join('\n')+'\n\nМогу пройти по ним по порядку и готовить ответы для подтверждения.'})};}
+  if(intent==='backlog'||intent==='next'){
+   const reset=/заново|с самого начала|сначала|самого начала/i.test(job.text);
+   walk=reset||!priorWalk?{seen:[],startedAt:new Date().toISOString()}:priorWalk;
+   const choice=await choosePending(snapshot,walk,{getThread:emailId=>r.getThread(emailId,{includeReferences:false}),loadState:threadId=>loadRecord(env,'threadstate:'+threadId)});
+   walk={...walk,seen:choice.seen};
+   if(!choice.context){await saveRecord(env,'owner_mail_walk',walk);return {processed:true,...await r.completeJob({id,answer:overviewText(overview)+'\n\n'+(choice.exhausted?'Все доступные в этом проходе неотвеченные ветки разобраны.':'Проверенные старые ветки уже обработаны или закрыты. Продолжу следующими, когда напишешь «дальше».')})}}
+   context=choice.context;job.emailId=(context as any).canonical.id;
+   const freshQueue=await loadRecord(env,'agent_jobs'),saved=freshQueue.items.find((j:any)=>j.id===id);saved.emailId=job.emailId;saved.mailWorkflow='oldest_unanswered';await saveRecord(env,'agent_jobs',freshQueue);
+  }
+ }
+ if(job.emailId&&!context)context=await r.getThread(job.emailId,{includeReferences:false});
  if(job.emailId&&!context?.complete)throw Error('BOT_THREAD_INCOMPLETE');
- const result=await generateAnswer({ownerInstruction:job.text,conversation:context,policy:playbook,missingContact:!job.emailId});
+ const result=await generateAnswer({ownerInstruction:walk?'Разбираем неотвеченные письма по порядку. По полной реальной ветке кратко объясни по-русски: что хочет креатор, где остановились и что предлагаешь ответить. Подготовь уместный английский черновик. Если для цены/условий нужно решение владельца — задай конкретный вопрос, не проси прислать историю. Исходный запрос: '+job.text:job.text,conversation:context,mailAnalytics:overview,policy:playbook,missingContact:!job.emailId});
+ if(walk&&context){result.answer=(overview?overviewText(overview)+'\n\n':'')+'Разбор · '+(context as any).canonical.from_address_email+'\n'+result.answer+'\n\nМожно уточнить ответ или перейти к следующему письму сообщением «дальше». Для отправки нажми кнопку у черновика.';result.answer=result.answer.slice(0,3500)}
  if(result.draftBody&&!job.emailId){result.draftBody='';result.requiresClarification=true;result.answer='С кем работаем? Напиши email креатора или ответь на сообщение с нужной перепиской.'}
- return {processed:true,...await r.completeJob({id,...result})};
+ const completed=await r.completeJob({id,...result});
+ if(walk&&context&&completed.status==='completed')await saveRecord(env,'owner_mail_walk',{...walk,seen:[...new Set([...walk.seen,(context as any).thread.id])],currentEmailId:job.emailId,updatedAt:new Date().toISOString()});
+ return {processed:true,...completed};
 }
 // Telegram transport payload is validated against the bound owner before use.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
