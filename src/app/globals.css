@@ -264,3 +264,5 @@ details.set { padding:16px 18px; } details.set > summary { cursor:pointer; font:
 
 /* Keep the conversation list and page stable while only the selected thread changes. */
 .hub-mail{height:calc(100dvh - 260px);min-height:560px;max-height:1100px}.hub-mail-list{max-height:none;min-height:0}.hub-mail-thread{height:100%;min-height:0;overflow-y:auto;overscroll-behavior:contain}.hub-mail-list{overscroll-behavior:contain}@media(max-width:720px){.hub-mail{height:auto;min-height:0;max-height:none}.hub-mail-list{max-height:230px}.hub-mail-thread{height:auto;max-height:75dvh}}
+
+.hub-mail-thread{position:relative}.mail-thread-loading{position:sticky;top:0;z-index:4;padding:12px 20px;background:#f0edff;color:#603dff;font-size:12px;font-weight:600}.mail-thread-content.is-loading{opacity:.45;pointer-events:none}.mail-thread-content{min-height:100%}
