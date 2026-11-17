@@ -109,6 +109,7 @@ export async function sendDraft(draftId: string, body: string, who: string) {
 
 // Autopilot drafts go out after a delay, unless someone touched the chat in the meantime.
 export async function sendDue() {
+  if (!(await getSettings()).autopilot) return { sent: 0 };
   const { data } = await db.from("drafts").select("id,body,creator_id,created_at").eq("status", "scheduled").lte("send_after", new Date().toISOString()).limit(10);
   let sent = 0;
   for (const d of data ?? []) {
