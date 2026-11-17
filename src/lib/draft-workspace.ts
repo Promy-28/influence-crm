@@ -6,6 +6,8 @@ import {environment,loadRecord,saveRecord,decodeRecord,api,telegram,campaigns} f
 import {createAgentRuntime} from './promy-bot/agent-runtime';
 import {processJob} from './promy-bot/realtime';
 import {processOwnerUpdate} from './promy-bot/owner-update';
+import {campaignIds,briefEvidence} from './campaign-context';
+import {campaignHistory,creatorCampaigns} from './hub-data';
 import {mailSnapshot} from './hub-data';
 import {pendingThreads} from './promy-bot/mail-workflow';
 import {MAIL_FOCUS} from './promy-bot/mail-focus';
@@ -15,12 +17,13 @@ const runtime=(env:ReturnType<typeof environment>):any=>createAgentRuntime({env,
 async function records(source:MailSource='reddit'){return (await all<any>((from,to)=>db.from('promy_bot_records').select('id,value').like('id','draft:%').order('id').range(from,to))).map(r=>decodeRecord(r.value)).filter(d=>sourceMatches(d,source)&&(source==='apify'||d.campaign===MAIL_FOCUS.campaign))}
 export async function draftWorkspace(source:MailSource='reddit'){
  const env=environment(),[drafts,queue,decisions]=await Promise.all([records(source),loadRecord(env,'agent_jobs'),all<any>((from,to)=>db.from('promy_bot_records').select('id,value').like('id','decision:%').order('id').range(from,to))]);
+ const [history,membership]=await Promise.all([campaignHistory(),creatorCampaigns()]);
  const visible=latestDrafts(drafts).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
  const scopedDecisions=decisions.map(r=>decodeRecord(r.value)).filter(d=>sourceMatches(d,source));
  const saved=scopedDecisions.filter(d=>d.status==='needs_decision').map(d=>({...d,status:'completed'}));
  const savedIds=new Set(scopedDecisions.map(d=>d.emailId));
  const jobs=(queue?.items||[]).filter((j:any)=>j.source==='hub_batch'&&sourceMatches(j,source)&&(j.status!=='completed'||!j.draftId&&!savedIds.has(j.emailId))).map((j:any)=>({id:j.id,emailId:j.emailId,creatorId:j.creatorId||null,status:j.status,answer:j.answer||'',error:j.prepareError||'',context:j.hubContext||null,requiresClarification:!!j.requiresClarification}));
- return {drafts:visible.map(d=>({...d,ready:readyDraft(d),editable:editableDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs],mailSource:source,focus:source==='apify'?'Apify · TikTok / Instagram':MAIL_FOCUS.label};
+ return {drafts:visible.map(d=>({...d,campaignIds:campaignIds(d),briefContext:d.briefContext||briefEvidence(history.emails.filter((e:any)=>e.campaign_id===d.campaign&&e.eaccount===d.eaccount&&(e.thread_id===d.threadId||String(e.lead||e.to_address_email_list||'').toLowerCase()===d.recipient?.toLowerCase()))),ready:readyDraft(d),editable:editableDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs].map(j=>({...j,campaignIds:[...(membership.get(String(j.context?.recipient||'').toLowerCase())||[])]})),mailSource:source,focus:source==='apify'?'Apify · TikTok / Instagram':MAIL_FOCUS.label};
 }
 export async function queueDraftBatch(limit=30,source:MailSource='reddit'){
  if(source==='apify'){const env=environment(),r=runtime(env),[candidates,w,q]=await Promise.all([apifyCandidates(),draftWorkspace(source),loadRecord(env,'agent_jobs')]);const blocked=new Set(w.drafts.filter((d:any)=>['draft','sending','uncertain','sent'].includes(d.status)).map((d:any)=>d.emailId));let queued=0;for(const c of candidates){if(queued>=Math.max(1,Math.min(30,Math.floor(limit)||30)))break;if(c.inst_reply_uuid&&blocked.has(c.inst_reply_uuid)||(q?.items||[]).some((j:any)=>j.creatorId===c.id&&j.mailSource==='apify'&&(j.status==='new'||!c.inst_reply_uuid||j.emailId===c.inst_reply_uuid)))continue;await r.enqueueJob({id:'batch:'+crypto.randomUUID(),source:'hub_batch',mailSource:'apify',creatorId:c.id,emailId:c.inst_reply_uuid||(await liveApifyConversation(env,c.id)).context.canonical.id,text:'Подготовь уместный ответ на последнее входящее креатора Apify. Дай краткое пояснение по-русски. Если требуются цена, бриф или решение владельца, спроси его; не выдумывай условия.'});queued++}return {queued}}
@@ -61,5 +64,7 @@ export async function requestWorkspaceRevision(emailId:string,instruction:string
  if((source==='reddit'&&!/^[a-f0-9-]{36}$/.test(emailId))||!instruction.trim()||instruction.length>5000)throw Error('Укажи решение или инструкцию для ответа.');
  if(source==='apify'){if(!creatorId)throw Error('Нужен креатор Apify');await apifyCreator(creatorId)}
  const env=environment(),r=runtime(env);const id='batch:'+crypto.randomUUID();
- await r.enqueueJob({id,source:'hub_batch',mailSource:source,creatorId,emailId:emailId||null,text:instruction});return {queued:1};
+ await r.enqueueJob({id,source:'hub_batch',mailSource:source,creatorId,emailId:emailId||null,text:instruction});
+ for(const old of await records(source))if(old.emailId===emailId&&old.status==='draft'){old.status='revision_requested';await saveRecord(env,'draft:'+old.id,old)}
+ return {queued:1};
 }

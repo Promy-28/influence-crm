@@ -1,3 +1,4 @@
+import CampaignBadge from '@/components/CampaignBadge';
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
@@ -21,7 +22,7 @@ export default async function Creator({ params }: { params: Promise<{ id: string
   const tl: [string, string | null][] = [["Найден", c.created_at], ["Одобрен", c.review_status === "approved" ? c.reviewed_at : null], ["Отправлен в Instantly", c.queued_at], ["Первое письмо", c.first_sent_at], ["Открыл", c.opened_at], ["Ответил", c.replied_at], ["Интерес", c.positive_at], ["Зарегистрировался на Promy", c.registered_at], ["Заполнил профиль", c.profile_done_at], ["Первое видео", c.first_video_at]];
   return <div className="flex flex-col gap-4" style={{ maxWidth: 1100 }}>
     <div className="row" style={{ gap: 14 }}>{c.avatar_url ? <img className="ava" src={c.avatar_url} alt="" referrerPolicy="no-referrer" /> : <div className="ava" />}
-      <div><h1>@{c.handle}</h1><div className="row" style={{ marginTop: 6 }}><span className={`tag ${tag}`}>{label}</span><span className="tag">{PLATFORM[c.platform]}</span>{arm && <span className="tag">вариант {arm.label}: {arm.name}</span>}{c.reply_label && <span className={`tag ${LABELS[c.reply_label]?.tag ?? ""}`}>{LABELS[c.reply_label]?.name}</span>}{c.do_not_contact && <span className="tag bad">не писать</span>}</div></div></div>
+      <div><h1>@{c.handle}</h1><CampaignBadge ids={c.inst_campaign_id?[c.inst_campaign_id]:[]}/><div className="row" style={{ marginTop: 6 }}><span className={`tag ${tag}`}>{label}</span><span className="tag">{PLATFORM[c.platform]}</span>{arm && <span className="tag">вариант {arm.label}: {arm.name}</span>}{c.reply_label && <span className={`tag ${LABELS[c.reply_label]?.tag ?? ""}`}>{LABELS[c.reply_label]?.name}</span>}{c.do_not_contact && <span className="tag bad">не писать</span>}</div></div></div>
     <div className="two">
       <div className="flex flex-col gap-3">
         <section className="panel card">

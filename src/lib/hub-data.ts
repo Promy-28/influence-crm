@@ -7,16 +7,20 @@ export const RATINGS:Record<string,string>={great:'Зелёный',maybe:'Жёл
 export const ratingClass=(r:string)=>r==='great'?'good':r==='maybe'?'warn':r==='no'?'bad':'';
 export const sourceSheet='https://docs.google.com/spreadsheets/d/1aiJ-YaWM__dEZxhUp21nKrN3fz3YKmlYQYPVM2OnQnI/edit#gid=286322810';
 export const safeLinks=(s:unknown)=>[...new Set((String(s||'').match(/https?:\/\/[^\s<>"\])]+/gi)||[]))].slice(0,4);
-export const mailSnapshot=cache(async():Promise<any>=>{
+export const campaignHistory=cache(async():Promise<any>=>{
  const env=environment(),active=await loadRecord(env,'agent_history_active');
- if(!active?.complete)return {complete:false,syncedAt:null,emails:[],threads:[],aggregate:{waitingOnUs:0,messages:0,threads:0}};
+ if(!active?.complete)return {complete:false,syncedAt:null,emails:[]};
  const ids=Array.from({length:active.chunks},(_,i)=>'agent_history:'+active.generation+':'+i);
- const {data,error}=await db.from('promy_bot_records').select('id,value,version').in('id',ids);
+ const {data,error}=await db.from('promy_bot_records').select('id,value').in('id',ids);
  if(error||data?.length!==ids.length)throw Error('История загружена не полностью');
- const emails=data.flatMap((r:{value:string})=>decodeRecord(r.value).items||[]);
- const analysis=analyzeConversations(emails,{complete:true});
- for(const t of analysis.threads as any[]){if(!t.sender){const original=emails.find((e:any)=>e.thread_id===t.id);t.sender=(String(original?.lead||original?.to_address_email_list||'').match(/[^\s,;<>]+@[^\s,;<>]+/)||[])[0]||'Адрес не определён'}}
- return focusSnapshot({...analysis,emails,syncedAt:active.syncedAt});
+ return {complete:true,syncedAt:active.syncedAt,emails:data.flatMap((r:{value:string})=>decodeRecord(r.value).items||[])};
+});
+export const mailSnapshot=cache(async():Promise<any>=>focusSnapshot(await campaignHistory()));
+export const creatorCampaigns=cache(async()=>{
+ const [history,archived,rows]=await Promise.all([campaignHistory(),loadRecord(environment(),'campaign_membership'),all<any>((f,t)=>db.from('creators').select('email,inst_campaign_id').not('inst_campaign_id','is',null).range(f,t))]);
+ const result=new Map<string,Set<string>>();const add=(email:string,id:string)=>{if(!email||!id)return;const k=email.toLowerCase();if(!result.has(k))result.set(k,new Set());result.get(k)!.add(id)};
+ for(const e of history.emails){const email=Number(e.ue_type)===2?e.from_address_email:String(e.lead||e.to_address_email_list||'').match(/[^\s,;<>]+@[^\s,;<>]+/)?.[0];add(email,e.campaign_id)}
+ for(const c of archived?.items||[])add(c.email,c.campaignId);for(const c of rows)add(c.email,c.inst_campaign_id);return result;
 });
 export const redditDirectory=cache(async():Promise<any>=>{
  const [directory,legacy]=await Promise.all([

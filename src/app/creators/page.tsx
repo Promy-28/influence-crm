@@ -1,3 +1,5 @@
+import CampaignBadge from '@/components/CampaignBadge';
+import {creatorCampaigns} from '@/lib/hub-data';
 import {workspaceMode} from '@/lib/workspace-mode';
 import {mailSource} from '@/lib/mail-source';
 import FoundCreators from '@/components/FoundCreators';
@@ -8,7 +10,7 @@ export default async function Creators({searchParams}:{searchParams:Promise<Reco
  const sp=await searchParams,source=(sp.source?mailSource(sp.source):await workspaceMode())==='apify'?'found':'reddit';
 
  if(source==='found')return <div className="hub-stack"><div className="note">Этих креаторов нашли через поиск TikTok / Instagram. Источник и запрос указаны в таблице. <a className="l" href="/review">Проверить найденных →</a></div><FoundCreators searchParams={searchParams}/></div>;
- const [all,mail]=await Promise.all([redditDirectory(),mailSnapshot()]);const contacts=contactThreads(mail.threads);
+ const [all,mail,membership]=await Promise.all([redditDirectory(),mailSnapshot(),creatorCampaigns()]);const contacts=contactThreads(mail.threads);
  const query=(sp.q||'').toLowerCase();const rows=all.filter(c=>(!sp.rating||c.rating===sp.rating)&&(!query||[c.email,c.payload.name,c.payload.reddit].join(' ').toLowerCase().includes(query)));
  const page=Math.max(0,Number(sp.page)||0),shown=rows.slice(page*50,page*50+50);
  return <div className="hub-stack">
@@ -19,7 +21,7 @@ export default async function Creators({searchParams}:{searchParams:Promise<Reco
   <form action={requestCreatorReviews} id="batch-review" className="hub-toolbar"><Submit className="btn-p">Проверить выбранных с видео и звуком</Submit><span className="muted">До 20 за час · результат здесь и в Telegram</span></form>
   <div className="panel tw"><table className="t hub-creators"><thead><tr><th><PickAll name="id"/></th><th>Креатор / email</th><th>Твой выбор</th><th>Проверка агента</th><th>Цена из формы</th><th>Почта</th></tr></thead><tbody>{shown.map(c=>{const p=c.payload,a=p.assessment,t=contacts.get(c.email.toLowerCase());return <tr key={c.id}>
    <td><input type="checkbox" name="id" value={c.id} form="batch-review" disabled={c.legacy} aria-label={'Проверить '+c.email}/></td>
-   <td><b>{p.name||p.reddit||c.email}</b><div className="mail-address">{c.email}</div><div className="muted">{p.country||'Страна не указана'} · {c.legacy?'Старая таблица':'Reddit / форма'}</div><div className="row">{safeLinks(p.profile+' '+p.videos).map((url,i)=><a className="l" key={url} href={url} target="_blank" rel="noreferrer">{i?'Образец':'Портфолио'} ↗</a>)}</div></td>
+   <td><b>{p.name||p.reddit||c.email}</b><div className="mail-address">{c.email}</div><CampaignBadge ids={[...(membership.get(c.email?.toLowerCase())||[])]}/><div className="muted">{p.country||'Страна не указана'} · {c.legacy?'Старая таблица':'Reddit / форма'}</div><div className="row">{safeLinks(p.profile+' '+p.videos).map((url,i)=><a className="l" key={url} href={url} target="_blank" rel="noreferrer">{i?'Образец':'Портфолио'} ↗</a>)}</div></td>
    <td><span className={'tag '+ratingClass(c.rating)}>{RATINGS[c.rating]||'Не проверен'}</span><p className="hub-small">{c.reason||'Причина пока не записана'}</p>{!c.legacy&&<details><summary className="l">Изменить и объяснить</summary><form action={saveCreatorChoice} className="hub-stack hub-review-form"><input type="hidden" name="id" value={c.id}/><select className="in" name="rating" defaultValue={c.rating} aria-label="Твой цвет">{['great','maybe','no','unreviewed'].map(k=><option value={k} key={k}>{RATINGS[k]}</option>)}</select><textarea className="in" name="reason" required maxLength={1500} defaultValue={c.reason} placeholder="Почему: речь, качество, цена…" aria-label="Причина выбора"/><Submit>Сохранить и обучить агента</Submit></form></details>}</td>
    <td>{c.review_pending?<span className="tag">В очереди на проверку</span>:a?<><span className={'tag '+ratingClass(a.decision)}>{RATINGS[a.decision]||a.decision}</span><p className="hub-small">{a.reason}</p><span className="muted">Видео {a.videoReviewed?'✓':'не проверено'} · звук {a.audioReviewed?'✓':'не проверен'}</span></>:<span className="muted">Ещё не проверял</span>}</td>
    <td>{p.price?String(p.price).startsWith('$')?p.price:'$'+p.price:'—'}<p className="muted hub-small">{a?.price||'Не согласована'}</p></td>

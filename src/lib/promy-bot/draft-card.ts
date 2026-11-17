@@ -1,5 +1,6 @@
+import {campaignInfo} from '../campaign-context.ts';
 export function draftCard(draft:any,answer:string){
- const head='КРЕАТОР · '+draft.recipient+'\nОтправитель: '+draft.eaccount+'\nТема: '+draft.subject;
+ const head='КРЕАТОР · '+draft.recipient+'\nОтправитель: '+draft.eaccount+'\nТема: '+draft.subject+'\nКампания: '+(draft.campaign?campaignInfo(draft.campaign).label:'не подтверждена');
  const proposed='\n\nПРЕДЛАГАЕМЫЙ ОТВЕТ\n'+draft.body;
  const tail='\n\nReply: имя, подпись и баннер сохранены.\nПравки — обычным сообщением. «Отправляй» — подтвердить этот текст. «Дальше» — следующая переписка.';
  const available=3900-head.length-proposed.length-tail.length-100;
