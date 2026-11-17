@@ -1,34 +1,28 @@
-import { db } from "@/lib/db";
-import { Filters } from "@/components/ui";
-import { stage, STAGE_FILTERS, fmt, n, PLATFORM } from "@/lib/format";
-
-const wrap = (s: string) => `%${s.replace(/[%,()]/g, " ")}%`;
-export default async function Creators({ searchParams }: { searchParams: Promise<{ st?: string; p?: string; q?: string; arm?: string; page?: string }> }) {
-  const sp = await searchParams; const page = Math.max(0, Number(sp.page ?? 0));
-  let q = db.from("creators").select("id,platform,handle,name,email,avatar_url,followers,review_status,queued_at,first_sent_at,opened_at,replied_at,positive_at,registered_at,profile_done_at,first_video_at,videos,do_not_contact,bounced_at,unsubscribed_at,source,created_at,arms(label),queries(kind,value)", { count: "exact" });
-  const st = sp.st ?? "";
-  if (st === "video") q = q.not("first_video_at", "is", null); else if (st === "profile") q = q.not("profile_done_at", "is", null); else if (st === "registered") q = q.not("registered_at", "is", null);
-  else if (st === "positive") q = q.not("positive_at", "is", null); else if (st === "replied") q = q.not("replied_at", "is", null); else if (st === "sent") q = q.not("first_sent_at", "is", null);
-  else if (st === "queued") q = q.not("queued_at", "is", null).is("first_sent_at", null); else if (st === "approved") q = q.eq("review_status", "approved").is("queued_at", null);
-  else if (st === "pending") q = q.eq("review_status", "pending"); else if (st === "rejected") q = q.in("review_status", ["rejected", "auto_rejected"]); else if (st === "existing") q = q.eq("review_status", "existing");
-  if (sp.p) q = q.eq("platform", sp.p);
-  if (sp.arm) q = q.eq("arm_id", sp.arm);
-  if (sp.q) q = q.or(`handle.ilike.${wrap(sp.q)},email.ilike.${wrap(sp.q)},name.ilike.${wrap(sp.q)}`);
-  const order = ["registered", "profile", "video"].includes(st) ? "registered_at" : ["replied", "positive"].includes(st) ? "replied_at" : ["sent"].includes(st) ? "first_sent_at" : "created_at";
-  const [{ data, count }, { data: arms }] = await Promise.all([q.order(order, { ascending: false, nullsFirst: false }).range(page * 100, page * 100 + 99), db.from("arms").select("id,label,name").order("label")]);
-  const qs = (o: Record<string, string | number>) => `/creators?${new URLSearchParams({ ...Object.fromEntries(Object.entries(sp).filter(([, v]) => v)), ...Object.fromEntries(Object.entries(o).map(([k, v]) => [k, String(v)])) })}`;
-  return <div className="flex flex-col gap-4">
-    <div><h1>Креаторы</h1><p className="sub">Все, кого нашли, кому написали и кто дошёл до регистрации. Нажми на креатора, чтобы увидеть всю историю.</p></div>
-    <Filters><select className="in" name="st" defaultValue={st} aria-label="Этап">{STAGE_FILTERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-      <select className="in" name="p" defaultValue={sp.p ?? ""} aria-label="Платформа"><option value="">TikTok и Instagram</option><option value="tiktok">TikTok</option><option value="instagram">Instagram</option></select>
-      <select className="in" name="arm" defaultValue={sp.arm ?? ""} aria-label="Вариант письма"><option value="">Все варианты писем</option>{(arms ?? []).map((a) => <option key={a.id} value={a.id}>{a.label}: {a.name}</option>)}</select>
-      <input className="in" name="q" defaultValue={sp.q} placeholder="Ник, почта, имя" aria-label="Поиск" /></Filters>
-    <div className="panel tw"><table className="t"><thead><tr><th>Креатор</th><th>Этап</th><th className="num">Подп.</th><th>Вариант</th><th>Нашли</th><th>Написали</th><th>Регистрация</th><th className="num">Видео</th></tr></thead>
-      <tbody>{(data ?? []).map((c) => { const [label, tag] = stage(c); const a = c.arms as unknown as { label: string } | null; const qq = c.queries as unknown as { kind: string; value: string } | null;
-        return <tr key={c.id}><td><div className="row" style={{ flexWrap: "nowrap" }}>{c.avatar_url ? <img className="ava-s" src={c.avatar_url} alt="" referrerPolicy="no-referrer" /> : <span className="ava-s" />}<div><a className="l" href={`/creators/${c.id}`}>@{c.handle}</a><div className="muted" style={{ fontSize: 12 }}>{PLATFORM[c.platform]} · {c.email}</div></div></div></td>
-          <td><span className={`tag ${tag}`}>{label}</span></td><td className="num">{n(c.followers)}</td><td>{a ? <span className="tag">{a.label}</span> : "—"}</td>
-          <td className="muted" style={{ fontSize: 12.5 }}>{fmt(c.created_at)}{qq ? ` · ${qq.kind === "hashtag" ? "#" : ""}${qq.value}` : c.source !== "apify" ? ` · ${c.source.replace("import:", "")}` : ""}</td><td>{fmt(c.first_sent_at)}</td><td>{fmt(c.registered_at)}</td><td className="num">{c.videos || "—"}</td></tr>; })}</tbody></table>
-      {!data?.length && <p className="muted" style={{ padding: 16 }}>Никого.</p>}</div>
-    <div className="row"><span className="muted">Всего {count ?? 0}</span>{page > 0 && <a className="btn" href={qs({ page: page - 1 })}>← Назад</a>}{(count ?? 0) > (page + 1) * 100 && <a className="btn" href={qs({ page: page + 1 })}>Дальше →</a>}</div>
-  </div>;
+import FoundCreators from '@/components/FoundCreators';
+import {redditDirectory,mailSnapshot,contactThreads,RATINGS,ratingClass,safeLinks,sourceSheet} from '@/lib/hub-data';
+import {saveCreatorChoice,requestCreatorReviews} from '@/lib/hub-actions';
+import {Filters,Submit,PickAll} from '@/components/ui';
+export default async function Creators({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
+ const sp=await searchParams,source=sp.source==='found'?'found':'reddit';
+ const tabs=<nav className="tabs" aria-label="Источник креаторов"><a className={'tab '+(source==='reddit'?'on':'')} href="/creators?source=reddit">Reddit и форма</a><a className={'tab '+(source==='found'?'on':'')} href="/creators?source=found">Найденные в соцсетях</a></nav>;
+ if(source==='found')return <div className="hub-stack">{tabs}<div className="note">Этих креаторов нашли через поиск TikTok / Instagram. Источник и запрос указаны в таблице. <a className="l" href="/review">Проверить найденных →</a></div><FoundCreators searchParams={searchParams}/></div>;
+ const [all,mail]=await Promise.all([redditDirectory(),mailSnapshot()]);const contacts=contactThreads(mail.threads);
+ const query=(sp.q||'').toLowerCase();const rows=all.filter(c=>(!sp.rating||c.rating===sp.rating)&&(!query||[c.email,c.payload.name,c.payload.reddit].join(' ').toLowerCase().includes(query)));
+ const page=Math.max(0,Number(sp.page)||0),shown=rows.slice(page*50,page*50+50);
+ return <div className="hub-stack">
+  <header className="hub-heading"><div><h1>Креаторы</h1><p className="sub">Проверяй качество, сохраняй причину выбора и переходи к переписке.</p></div><a className="btn" href="/guide">Как работать</a></header>{tabs}
+  {sp.msg&&<div className="okbox" role="status">{sp.msg}</div>}
+  <div className="hub-toolbar"><span>{all.length} креаторов · исходные цвета и новые заявки из формы</span><a className="l" href={sourceSheet} target="_blank" rel="noreferrer">Исходная таблица ↗</a><a className="btn" href="/import?source=reddit">Добавить из Reddit</a></div>
+  <Filters><input type="hidden" name="source" value="reddit"/><input className="in" name="q" defaultValue={sp.q} placeholder="Имя, Reddit или email" aria-label="Поиск креаторов"/><select className="in" name="rating" defaultValue={sp.rating||''} aria-label="Твой выбор"><option value="">Все цвета</option>{Object.entries(RATINGS).filter(([k])=>k!=='unverified').map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Filters>
+  <form action={requestCreatorReviews} id="batch-review" className="hub-toolbar"><Submit className="btn-p">Проверить выбранных с видео и звуком</Submit><span className="muted">До 20 за час · результат здесь и в Telegram</span></form>
+  <div className="panel tw"><table className="t hub-creators"><thead><tr><th><PickAll name="id"/></th><th>Креатор / email</th><th>Твой выбор</th><th>Проверка агента</th><th>Цена из формы</th><th>Почта</th></tr></thead><tbody>{shown.map(c=>{const p=c.payload,a=p.assessment,t=contacts.get(c.email.toLowerCase());return <tr key={c.id}>
+   <td><input type="checkbox" name="id" value={c.id} form="batch-review" disabled={c.legacy} aria-label={'Проверить '+c.email}/></td>
+   <td><b>{p.name||p.reddit||c.email}</b><div className="mail-address">{c.email}</div><div className="muted">{p.country||'Страна не указана'} · {c.legacy?'Старая таблица':'Reddit / форма'}</div><div className="row">{safeLinks(p.profile+' '+p.videos).map((url,i)=><a className="l" key={url} href={url} target="_blank" rel="noreferrer">{i?'Образец':'Портфолио'} ↗</a>)}</div></td>
+   <td><span className={'tag '+ratingClass(c.rating)}>{RATINGS[c.rating]||'Не проверен'}</span><p className="hub-small">{c.reason||'Причина пока не записана'}</p>{!c.legacy&&<details><summary className="l">Изменить и объяснить</summary><form action={saveCreatorChoice} className="hub-stack hub-review-form"><input type="hidden" name="id" value={c.id}/><select className="in" name="rating" defaultValue={c.rating} aria-label="Твой цвет">{['great','maybe','no','unreviewed'].map(k=><option value={k} key={k}>{RATINGS[k]}</option>)}</select><textarea className="in" name="reason" required maxLength={1500} defaultValue={c.reason} placeholder="Почему: речь, качество, цена…" aria-label="Причина выбора"/><Submit>Сохранить и обучить агента</Submit></form></details>}</td>
+   <td>{c.review_pending?<span className="tag">В очереди на проверку</span>:a?<><span className={'tag '+ratingClass(a.decision)}>{RATINGS[a.decision]||a.decision}</span><p className="hub-small">{a.reason}</p><span className="muted">Видео {a.videoReviewed?'✓':'не проверено'} · звук {a.audioReviewed?'✓':'не проверен'}</span></>:<span className="muted">Ещё не проверял</span>}</td>
+   <td>{p.price?String(p.price).startsWith('$')?p.price:'$'+p.price:'—'}<p className="muted hub-small">{a?.price||'Не согласована'}</p></td>
+   <td><span className={'tag '+(t?.state==='waiting_on_us'?'warn':'')}>{t?t.state==='waiting_on_us'?'Ждёт нас':t.state==='waiting_on_them'?'Ждём ответ':'Есть переписка':'Нет писем в снимке'}</span><p><a className="l" href={'/inbox?source=reddit&email='+encodeURIComponent(c.email)}>Открыть почту →</a></p>{!c.legacy&&<a className="l" href={"/outreach/"+c.id}>Добавить в кампанию →</a>}{c.outreach_state&&<p className="muted">{c.outreach_state.status}</p>}</td>
+  </tr>})}</tbody></table>{!shown.length&&<div className="hub-empty">По этим фильтрам никого нет. Сбрось поиск или добавь креаторов из Reddit.</div>}</div>
+  <div className="hub-toolbar"><span>{rows.length} по фильтру</span>{page>0&&<a className="btn" href={'/creators?'+new URLSearchParams({...sp as Record<string,string>,page:String(page-1)})}>← Назад</a>}{rows.length>(page+1)*50&&<a className="btn" href={'/creators?'+new URLSearchParams({...sp as Record<string,string>,page:String(page+1)})}>Дальше →</a>}</div>
+ </div>;
 }

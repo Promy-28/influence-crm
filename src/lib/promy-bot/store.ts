@@ -7,6 +7,7 @@ export const environment=():StoreEnv=>({versions:new Map()});
 const key=()=>createHash('sha256').update('promy-bot-records:'+process.env.APP_PASSWORD).digest();
 function seal(value:unknown){const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key(),iv);const data=Buffer.concat([cipher.update(JSON.stringify(value),'utf8'),cipher.final()]);return Buffer.concat([iv,cipher.getAuthTag(),data]).toString('base64')}
 function open(value:string){const b=Buffer.from(value,'base64'),decipher=createDecipheriv('aes-256-gcm',key(),b.subarray(0,12));decipher.setAuthTag(b.subarray(12,28));return JSON.parse(Buffer.concat([decipher.update(b.subarray(28)),decipher.final()]).toString())}
+export const decodeRecord=open;
 export async function loadRecord(env:StoreEnv,id:string){const {data,error}=await db.from('promy_bot_records').select('value,version').eq('id',id).maybeSingle();if(error)throw Error('BOT_STATE_READ_FAILED');env.versions.set(id,data?.version||0);return data?open(data.value):null}
 export async function saveRecord(env:StoreEnv,id:string,value:unknown){
  if(!env.versions.has(id))await loadRecord(env,id);const version=env.versions.get(id)!;

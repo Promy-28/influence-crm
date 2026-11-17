@@ -9,6 +9,18 @@ export async function POST(req:Request){
  if(!adminAuthorized(req))return NextResponse.json({error:'Unauthorized'},{status:401});
  const env=environment();let b;try{b=await req.json()}catch{return NextResponse.json({error:'Invalid JSON'},{status:400})}
  try{
+  if(b.op==='directorySync'){
+   if(!Array.isArray(b.records)||b.records.length>1000)throw Error('Invalid directory');
+   const rows=b.records.map((r:any)=>{if(!/^[a-f0-9]{16}$/.test(r.id)||typeof r.email!=='string'||!r.payload)throw Error('Invalid creator');return {id:r.id,email:r.email.toLowerCase(),payload:r.payload,updated_at:new Date().toISOString()}});
+   if(rows.length)await db.from('reddit_creator_directory').upsert(rows,{onConflict:'email'});
+   if(b.status)await saveRecord(env,'_creator_agent_status',b.status);
+   return NextResponse.json({synced:rows.length});
+  }
+  if(b.op==='directoryWork'){
+   const [requests,feedback]=await Promise.all([db.from('reddit_creator_directory').select('id,email,payload,review_requested_at').eq('review_pending',true).order('review_requested_at').limit(20),db.from('reddit_creator_directory').select('id,email,owner_rating,owner_reason,payload').not('owner_reviewed_at','is',null).order('owner_reviewed_at',{ascending:false}).limit(20)]);
+   return NextResponse.json({requests:requests.data||[],feedback:feedback.data||[]});
+  }
+  if(b.op==='ackDirectory'&&Array.isArray(b.ids)&&b.ids.length<=20){await db.from('reddit_creator_directory').update({review_pending:false}).in('id',b.ids);return NextResponse.json({saved:true})}
   if(b.op==='bootstrap'){
    if(!Array.isArray(b.records)||b.records.length>50)return NextResponse.json({error:'Invalid batch'},{status:400});
    let imported=0;for(const r of b.records){if(typeof r.id!=='string'||!sharedId(r.id))throw Error('Invalid record');if(await loadRecord(env,r.id)===null){await saveRecord(env,r.id,r.value);imported++}}

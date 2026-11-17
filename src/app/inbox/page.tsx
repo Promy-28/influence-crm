@@ -1,51 +1,32 @@
-import { db } from "@/lib/db";
-import { getSettings } from "@/lib/settings";
-import { LABELS } from "@/lib/replies";
-import { fmtTime, ago, n } from "@/lib/format";
-import { TabLink, Submit } from "@/components/ui";
-import { doneDialog, manualReply, redraft, relabel, sendDraftAction, setLabel, skipDraft } from "@/lib/actions";
-
-type C = { id: string; handle: string; name: string | null; email: string; avatar_url: string | null; platform: string; profile_url: string | null; followers: number | null; reply_label: string | null; last_reply_at: string | null; needs_reply: boolean; registered_at: string | null; profile_done_at: string | null; ref_code: string | null; eaccount: string | null; bio: string | null };
-export default async function Inbox({ searchParams }: { searchParams: Promise<{ c?: string; f?: string; err?: string }> }) {
-  const sp = await searchParams; const s0 = await getSettings(); const f = sp.f ?? (s0.autopilot ? "human" : "wait");
-  const base = db.from("creators").select("id,handle,name,email,avatar_url,platform,profile_url,followers,reply_label,last_reply_at,needs_reply,registered_at,profile_done_at,ref_code,eaccount,bio,human_reason,needs_human").not("replied_at", "is", null).order("last_reply_at", { ascending: false, nullsFirst: false }).limit(200);
-  const q = f === "human" ? base.eq("needs_human", true) : f === "wait" ? base.eq("needs_reply", true) : f === "pos" ? base.not("positive_at", "is", null) : base;
-  const [{ data: list }, { count: waiting }, { data: sched }, { count: human }] = await Promise.all([q, db.from("creators").select("id", { count: "exact", head: true }).eq("needs_reply", true), db.from("drafts").select("creator_id").eq("status", "scheduled"), db.from("creators").select("id", { count: "exact", head: true }).eq("needs_human", true)]);
-  const s = s0;
-  const rows = (list ?? []) as C[];
-  const cur = rows.find((r) => r.id === sp.c) ?? (sp.c ? ((await db.from("creators").select("id,handle,name,email,avatar_url,platform,profile_url,followers,reply_label,last_reply_at,needs_reply,registered_at,profile_done_at,ref_code,eaccount,bio,human_reason,needs_human").eq("id", sp.c).maybeSingle()).data as C | null) : rows[0]);
-  const next = rows[rows.findIndex((r) => r.id === cur?.id) + 1]?.id ?? "";
-  const [{ data: msgs }, { data: draft }] = cur ? await Promise.all([db.from("messages").select("id,direction,body,subject,at,sent_by,via,label").eq("creator_id", cur.id).order("at").limit(100), db.from("drafts").select("*").eq("creator_id", cur.id).in("status", ["new", "scheduled"]).order("created_at", { ascending: false }).limit(1).maybeSingle()]) : [{ data: [] }, { data: null }];
-  const schedSet = new Set((sched ?? []).map((d) => d.creator_id));
-  const L = cur?.reply_label ? LABELS[cur.reply_label] : null;
-  const link = cur?.ref_code ? s.signup_url.replace("{code}", cur.ref_code) : null;
-  return <div className="flex flex-col gap-3 dlg-page">
-    <div className="dlg-top"><h1>Диалоги</h1><p className="sub">AI читает ответ, ставит метку и пишет черновик. Ты правишь и отправляешь, письмо уходит в ту же ветку с того же ящика. Твои правки AI учитывает в следующих черновиках. {s.autopilot ? `Автопилот включён: AI отвечает сам через ${s.autopilot_delay_min} мин. Сюда, во вкладку «Нужен человек», и в Telegram попадают только сложные случаи.` : "Автопилот выключен: всё отправляешь ты."}</p></div>
-    <div className="tabs dlg-filters"><TabLink href="/inbox?f=human" on={f === "human"}>Нужен человек<span className="tab-n">{human ?? 0}</span></TabLink><TabLink href="/inbox?f=wait" on={f === "wait"}>Ждут ответа<span className="tab-n">{waiting ?? 0}</span></TabLink><TabLink href="/inbox?f=pos" on={f === "pos"}>С интересом</TabLink><TabLink href="/inbox?f=all" on={f === "all"}>Все ответы</TabLink></div>
-    {sp.err && <div className="errbox">{sp.err}</div>}
-    <div className={`panel dlg ${cur ? "has-chat" : ""}`}>
-      <div className="dlg-list">{rows.map((r) => <a key={r.id} href={`/inbox?c=${r.id}&f=${f}`} className={`dlg-i ${r.id === cur?.id ? "on" : ""}`}>
-        <div className="row" style={{ justifyContent: "space-between" }}><b>@{r.handle}</b><span className="muted" style={{ fontSize: 11.5 }}>{ago(r.last_reply_at)}</span></div>
-        <div className="row" style={{ marginTop: 3 }}>{(r.needs_reply || (r as C & { needs_human?: boolean }).needs_human) && <span className="dot" />}{(r as C & { needs_human?: boolean }).needs_human && <span className="tag warn">нужен человек</span>}{r.reply_label && <span className={`tag ${LABELS[r.reply_label]?.tag ?? ""}`}>{LABELS[r.reply_label]?.name ?? r.reply_label}</span>}{schedSet.has(r.id) && <span className="tag lime">автопилот</span>}{r.registered_at && <span className="tag good">зарегался</span>}</div></a>)}
-        {!rows.length && <p className="muted" style={{ padding: 14 }}>{f === "human" ? "Никого. Автопилот справляется сам." : f === "wait" ? "Все ответы обработаны." : "Ответов пока нет."}</p>}</div>
-      {cur ? <div className="dlg-main">
-        <div className="dlg-head"><a href="/inbox" className="dlg-back">← Все диалоги</a><div className="row" style={{ justifyContent: "space-between" }}><div className="row">{cur.avatar_url && <img className="ava-s" src={cur.avatar_url} alt="" referrerPolicy="no-referrer" />}<div><a className="l" href={`/creators/${cur.id}`}><b>@{cur.handle}</b></a> <span className="muted">· {cur.email} · {n(cur.followers)} подп.</span><div className="muted" style={{ fontSize: 12 }}>{cur.registered_at ? (cur.profile_done_at ? "Зарегался и заполнил профиль" : "Зарегался, профиль не заполнен") : "На Promy пока не зарегистрирован"}{cur.eaccount ? ` · пишем с ${cur.eaccount}` : ""}</div></div></div>
-          <form action={setLabel} className="row"><input type="hidden" name="creator" value={cur.id} /><input type="hidden" name="back" value={`/inbox?c=${cur.id}`} /><select className="in" name="label" defaultValue={cur.reply_label ?? ""} aria-label="Метка">{!cur.reply_label && <option value="">Без метки</option>}{Object.entries(LABELS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}</select><Submit>Сменить</Submit></form></div></div>
-        <div className="dlg-body">{(msgs ?? []).map((m) => <div key={m.id} className={`b ${m.direction === "out" ? "out" : ""}`}>{m.direction === "out" && m.sent_by && <div className="b-who">{m.sent_by}</div>}{m.subject && m.direction === "in" && <div className="b-who">{m.subject}</div>}{m.body}<time>{fmtTime(m.at)}</time></div>)}</div>
-        <div className="dlg-ai">
-          {(cur as C & { human_reason?: string | null }).human_reason && <div className="note" style={{ marginBottom: 8 }}>Нужен человек: {(cur as C & { human_reason?: string | null }).human_reason}</div>}
-          {L && <div className="row" style={{ marginBottom: 8 }}><span className={`tag ${L.tag}`}>{L.name}</span>{draft?.summary && <span className="muted" style={{ fontSize: 13 }}>{draft.summary}</span>}{draft?.confidence != null && <span className="muted" style={{ fontSize: 12 }}>уверенность {Math.round(Number(draft.confidence) * 100)}%</span>}</div>}
-          {draft ? <form action={sendDraftAction} className="flex flex-col gap-2"><input type="hidden" name="id" value={draft.id} /><input type="hidden" name="creator" value={cur.id} /><input type="hidden" name="next" value={next} />
-            {draft.status === "scheduled" && <div className="note">Автопилот отправит это {fmtTime(draft.send_after)}. Нажми «Отправить» сейчас, поправь или пропусти.</div>}
-            <textarea className="in" name="body" rows={8} defaultValue={draft.body} aria-label="Черновик ответа" />
-            <div className="row"><Submit className="btn-p">Отправить</Submit><Submit formAction={skipDraft}>Не отвечать</Submit>{link && <span className="muted" style={{ fontSize: 12 }}>Ссылка креатора: {link}</span>}</div>
-          </form> : cur.needs_reply ? <div className="flex flex-col gap-2"><p className="muted">{s.openai_key ? "Черновика нет (или метка не требует ответа)." : "Нет ключа OpenAI: черновики не пишутся."}</p><form action={relabel}><input type="hidden" name="creator" value={cur.id} /><Submit>Разобрать ответ AI ещё раз</Submit></form></div> : null}
-          <details style={{ marginTop: 10 }}><summary className="muted" style={{ cursor: "pointer", fontSize: 13 }}>Переписать черновик по указанию или ответить вручную</summary>
-            <form action={redraft} className="row" style={{ marginTop: 8 }}><input type="hidden" name="creator" value={cur.id} /><input className="in" name="instruction" placeholder="Например: короче, предложи созвон, ответь про оплату" style={{ flex: 1, minWidth: 220 }} aria-label="Указание для AI" /><Submit>Переписать</Submit></form>
-            <form action={manualReply} className="flex flex-col gap-2" style={{ marginTop: 8 }}><input type="hidden" name="creator" value={cur.id} /><textarea className="in" name="body" rows={4} placeholder="Свой ответ, уйдёт в ту же ветку" aria-label="Свой ответ" /><div className="row"><Submit>Отправить свой ответ</Submit></div></form>
-            {cur.needs_reply && <form action={doneDialog} style={{ marginTop: 8 }}><input type="hidden" name="creator" value={cur.id} /><Submit>Отметить как обработанный</Submit></form>}
-          </details>
-        </div>
-      </div> : <div className="dlg-main" style={{ display: "grid", placeItems: "center" }}><p className="muted">Выбери диалог</p></div>}
-    </div></div>;
+import FoundInbox from '@/components/FoundInbox';
+import {mailSnapshot} from '@/lib/hub-data';
+import {environment,loadRecord,api,telegram,saveRecord,campaigns} from '@/lib/promy-bot/store';
+import {createAgentRuntime} from '@/lib/promy-bot/agent-runtime';
+import {prepareHubReply,sendHubReply,refreshRedditMail} from '@/lib/hub-actions';
+import {Submit} from '@/components/ui';
+import {ago,fmtTime} from '@/lib/format';
+export default async function Inbox({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
+ const sp=await searchParams,source=sp.source==='found'||(!sp.source&&(sp.c||sp.f))?'found':'reddit';
+ const tabs=<nav className="tabs" aria-label="Источник переписок"><a className={'tab '+(source==='reddit'?'on':'')} href="/inbox?source=reddit">Reddit · обе рассылки</a><a className={'tab '+(source==='found'?'on':'')} href="/inbox?source=found">Найденные креаторы</a></nav>;
+ if(source==='found')return <div className="hub-stack">{tabs}<FoundInbox searchParams={searchParams}/></div>;
+ const snapshot=await mailSnapshot(),query=(sp.q||'').toLowerCase();
+ const all=snapshot.threads as any[];const rows=all.filter(t=>(sp.status!=='wait'||t.state==='waiting_on_us')&&(!query||String(t.sender).toLowerCase().includes(query))).sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
+ const selected=sp.thread?all.find(t=>t.id===sp.thread):sp.email?[...all].sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt))).find(t=>String(t.sender).toLowerCase()===sp.email!.toLowerCase()):rows[0];
+ const env=environment();let context:any=null,error='';
+ if(selected?.latestInboundId){try{context=await createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campaigns}).getThread(selected.latestInboundId,{includeReferences:false})}catch{error='Instantly сейчас не отдал живую переписку. Ниже показан сохранённый снимок.'}}
+ const thread=context?.thread||selected;
+ const queue=sp.job?await loadRecord(env,'agent_jobs'):null,job=queue?.items?.find((j:any)=>j.id===sp.job),draft=job?.draftId?await loadRecord(env,'draft:'+job.draftId):null;
+ return <div className="hub-stack">
+  <header className="hub-heading"><div><h1>Почта креаторов</h1><p className="sub">Все переписки двух Reddit-кампаний. Выбери человека, напиши инструкцию, проверь и отправь ответ.</p></div><form action={refreshRedditMail}><Submit>Обновить историю</Submit></form></header>{tabs}
+  {sp.msg&&<div className="okbox" role="status">{sp.msg}</div>}
+  <form className="hub-toolbar"><input type="hidden" name="source" value="reddit"/><input className="in" name="q" defaultValue={sp.q} placeholder="Поиск по email" aria-label="Поиск почты"/><select className="in" name="status" defaultValue={sp.status||'all'} aria-label="Статус ответа"><option value="all">Все переписки ({all.length})</option><option value="wait">Ждут нашего ответа ({all.filter(t=>t.state==='waiting_on_us').length})</option></select><button className="btn">Показать</button><span className="muted">История: {fmtTime(snapshot.syncedAt)} · выбранная ветка проверяется в Instantly</span></form>
+  <div className="panel hub-mail">
+   <aside className="hub-mail-list" aria-label="Переписки">{rows.map(t=><a key={t.id} className={'hub-mail-item '+(t.id===selected?.id?'selected':'')} href={'/inbox?source=reddit&thread='+encodeURIComponent(t.id)+'&email='+encodeURIComponent(t.sender)+'&q='+encodeURIComponent(sp.q||'')}><strong className="mail-address">{t.sender}</strong><span>{t.state==='waiting_on_us'?'● Ждёт нашего ответа':t.state==='waiting_on_them'?'Ждём креатора':'Переписка'}</span><small>{ago(t.lastMessageAt)}</small></a>)}{!rows.length&&<div className="hub-empty">Переписок по фильтру нет.</div>}</aside>
+   <section className="hub-mail-thread">{selected?<><header className="hub-thread-head"><h2 className="mail-address">{selected.sender}</h2><p className="muted">{context?.canonical?.subject||'Переписка'} · {selected.account}</p><a className="l" href="https://app.instantly.ai/app/unibox" target="_blank" rel="noreferrer">Открыть Instantly ↗</a></header>{error&&<div className="note">{error}</div>}
+    <div className="hub-messages">{thread.messages.map((m:any)=><article key={m.id} className={'hub-message '+(m.direction==='outbound'?'out':'')}><div className="hub-message-meta">{m.direction==='outbound'?'Promy':'Креатор'} · {fmtTime(m.timestamp)}</div><p>{m.text}</p></article>)}</div>
+    {draft&&<section className="hub-draft"><h2>Черновик ответа</h2><p className="muted">Кому: {draft.recipient} · от: {draft.eaccount}</p><pre>{draft.body}</pre>{draft.status==='draft'?<form action={sendHubReply}><input type="hidden" name="draftId" value={draft.id}/><Submit className="btn-p">Подтвердить и отправить это письмо</Submit></form>:<span className="tag">{draft.status}</span>}</section>}
+    {context?.complete&&thread.state==='waiting_on_us'?<form action={prepareHubReply} className="hub-compose"><input type="hidden" name="emailId" value={context.canonical.id}/><label htmlFor="reply-instruction"><b>Что ответить?</b></label><textarea id="reply-instruction" className="in" name="instruction" rows={3} maxLength={5000} required placeholder="Например: видео понравилось, готовим бриф, скоро пришлём детали"/><div className="row"><Submit className="btn-p">Подготовить черновик</Submit><a className="btn" href="https://t.me/influencerpromybot" target="_blank" rel="noreferrer">Продолжить в Telegram ↗</a></div><small className="muted">Черновик также появится в Telegram. До подтверждения письмо не отправляется.</small></form>:<p className="hub-empty">{context?'Последнее письмо уже обработано или не требует ответа.':'Для черновика нужна подтверждённая входящая ветка. Обнови историю или открой Instantly.'}</p>}
+   </>:<div className="hub-empty">{sp.email?'Для этого адреса писем в текущем снимке нет. Обнови историю или проверь Instantly.':'Выбери переписку слева.'}</div>}</section>
+  </div>
+ </div>;
 }
