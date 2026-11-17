@@ -26,7 +26,7 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
   if(!draftId){await tell('Сначала нужен показанный черновик. Напиши, кому и что ответить.');return true}
   if(!linked?.draftId){
    const draft=await loadRecord(env,'draft:'+draftId),contact=await loadRecord(env,'owner_mail_context');
-   if(!draft||active.pendingRevision||active.emailId!==draft.emailId||(contact?.emailId&&contact.emailId!==draft.emailId)||active.bodyHash!==await draftFingerprint(draft.body)){await tell('Черновик изменился или сейчас выбран другой креатор. Сначала покажу актуальный текст; старый не отправляю.');return true}
+   if(!draft||active.pendingRevision||active.emailId!==draft.emailId||(linked?.emailId&&linked.emailId!==draft.emailId)||(contact?.emailId&&contact.emailId!==draft.emailId)||active.bodyHash!==await draftFingerprint(draft.body)){await tell('Черновик изменился или сейчас выбран другой креатор. Сначала покажу актуальный текст; старый не отправляю.');return true}
   }
   text='/'+(action==='confirm'?'send':'cancel')+' '+draftId;
  }
