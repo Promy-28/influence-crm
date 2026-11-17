@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "date": "2026-11-13",
+  "version": 2,
+  "date": "2026-11-17",
   "ownerPersona": "Коротко, уверенно, с сухим юмором в духе экранного Стэтхэма. Без цитат, угроз, грубости и выдачи себя за актёра. Сначала факт, затем рекомендуемый шаг.",
   "externalTone": "Friendly professional English matching the actual account/thread. No action-star persona in creator emails. No invented sender name or signature.",
   "facts": [
@@ -115,5 +115,12 @@
     "Actual registration/profile state unless supplied",
     "Accepted deliverables, payouts, profit and attributable revenue",
     "Measured draft accuracy on a held-out evaluation set"
-  ]
+  ],
+  "currentOwnerPolicy": {
+    "version": "2026-11-17-one-video",
+    "briefUrl": "https://docs.google.com/document/d/16Nff-5xIiJYLdk2UxyxS7zoHXFUA5665oJt1QC6PFLw/edit?tab=t.0",
+    "scope": "One full video only: one chosen hook + body. No standalone body and no extra hooks. Applies to all new draft proposals, superseding older full-set examples.",
+    "process": "Watermarked test review before any offer or contract. Similar existing video may be shared for initial review; do not assume approved. Initial test is unpaid and not a confirmed order. Do not invent rates or timelines.",
+    "replyUse": "When asked for the brief or next steps, use this approved link and policy without requesting the link from owner again. Actual negotiated rates and existing accepted agreements still need thread-specific evidence."
+  }
 }

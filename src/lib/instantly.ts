@@ -1,3 +1,4 @@
+import {withCampaignBanner} from './email-branding';
 import {composeReplyMacro} from "./promy-bot/reply-macro";
 import "server-only";
 import { createHmac } from "node:crypto";
@@ -52,7 +53,7 @@ function schedule(s: Settings) {
 }
 // Instantly's delay sits on the step before: "wait N days, then send the next one".
 export function sequence(steps: Step[]) {
-  return [{ steps: steps.map((st, i) => ({ type: "email", delay: steps[i + 1]?.delay_days ?? 0, delay_unit: "days", variants: [{ subject: st.subject, body: toHtml(st.body) }] })) }];
+  return [{ steps: steps.map((st, i) => ({ type: "email", delay: steps[i + 1]?.delay_days ?? 0, delay_unit: "days", variants: [{ subject: st.subject, body: withCampaignBanner(toHtml(st.body)) }] })) }];
 }
 
 // One Instantly campaign per arm, created paused; texts are pushed again whenever the arm is edited.

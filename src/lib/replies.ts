@@ -1,3 +1,4 @@
+import {CREATOR_POLICY} from './creator-policy';
 import "server-only";
 import { db, log } from "./db";
 import { getSettings } from "./settings";
@@ -22,6 +23,7 @@ export const LABELS: Record<string, { name: string; tag: string; positive?: bool
 const SYS = (kb: string, link: string, call: string, sender: string) => `You answer email replies from UGC creators for Promy. Goal: get the creator to sign up on promy.io and fill in their creator profile.
 Facts you may use (never go beyond them, never invent brands, numbers, open briefs or deadlines):
 ${kb}
+Current owner policy (overrides obsolete scope or process in earlier facts): ${JSON.stringify(CREATOR_POLICY)}
 
 The creator's personal signup link: ${link}
 ${call ? `If they want a call, offer this booking link: ${call}` : "If they want a call, say you're happy to and ask what time works for them (US time)."}
