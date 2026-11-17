@@ -2,9 +2,9 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { logout } from "@/lib/actions";
-const main: [string,string][] = [['/','Dashboard'],['/creators','Креаторы'],['/review','Отбор креаторов'],['/inbox','Почта'],['/drafts','Черновики'],['/tests','Тесты A/B']];
+const main: [string,string][] = [['/','Dashboard'],['/creators','Креаторы'],['/review','Отбор креаторов'],['/inbox','Почта'],['/drafts','Черновики'],['/tests','Тесты A/B'],['/mailboxes','Наши email']];
 const tools: [string,string][] = [['/sourcing','Поиск'],['/analytics','Аналитика']];
-const more: [string,string][] = [['/guide','Как пользоваться'],['/import','Импорт'],['/mailboxes','Ящики'],['/log','Журнал'],['/settings','Настройки']];
+const more: [string,string][] = [['/guide','Как пользоваться'],['/import','Импорт'],['/log','Журнал'],['/settings','Настройки']];
 const on = (p: string, h: string) => (h === "/" ? p === "/" : p.startsWith(h));
 export function Nav({ counts,source }: { counts: Record<string, number>;source: "apify"|"reddit" }) {
   const p = usePathname();
@@ -28,5 +28,5 @@ function MobileBar({ counts, p, source }: { counts: Record<string, number>; p: s
 
 function SocialNav({path}:{path:string}){
  const platform=path.startsWith('/social/threads')?'threads':'reddit',root='/social/'+platform;
- return <nav className="nav social-nav"><div className="nav-h">{platform==='threads'?'Threads':'Reddit · постинг'}</div>{[['posting','Постинг'],['warmup','Прогрев'],['comments','Комментарии']].map(([tab,label])=><a className="nav-i" href={root+'?tab='+tab} key={tab}>{label}</a>)}<div className="nav-h">Хаб креаторов</div><a className="nav-i" href="/">Dashboard</a><a className="nav-i" href="/guide">Как пользоваться</a></nav>;
+ return <nav className="nav social-nav"><div className="nav-h">{platform==='threads'?'Threads':'Reddit · постинг'}</div>{[['posting','Постинг'],['warmup','Прогрев'],['comments','Комментарии']].map(([tab,label])=><a className="nav-i" href={root+'?tab='+tab} key={tab}>{label}</a>)}<div className="nav-h">Хаб креаторов</div><a className="nav-i" href="/">Dashboard</a><a className="nav-i" href="/guide">Как пользоваться</a><a className="nav-i" href="/mailboxes">Наши email</a></nav>;
 }
