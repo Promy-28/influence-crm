@@ -7,7 +7,7 @@ import {Submit} from '@/components/ui';
 import {ago,fmtTime} from '@/lib/format';
 export default async function Inbox({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
  const sp=await searchParams,source=sp.source==='found'||(!sp.source&&(sp.c||sp.f))?'found':'reddit';
- const tabs=<nav className="tabs" aria-label="Источник переписок"><a className={'tab '+(source==='reddit'?'on':'')} href="/inbox?source=reddit">Reddit · обе рассылки</a><a className={'tab '+(source==='found'?'on':'')} href="/inbox?source=found">Найденные креаторы</a></nav>;
+ const tabs=<nav className="tabs" aria-label="Источник переписок"><a className={'tab '+(source==='reddit'?'on':'')} href="/inbox?source=reddit">Green / Yellow</a><a className={'tab '+(source==='found'?'on':'')} href="/inbox?source=found">Найденные креаторы</a></nav>;
  if(source==='found')return <div className="hub-stack">{tabs}<FoundInbox searchParams={searchParams}/></div>;
  const snapshot=await mailSnapshot(),query=(sp.q||'').toLowerCase();
  const all=snapshot.threads as any[];const rows=all.filter(t=>(sp.status!=='wait'||t.state==='waiting_on_us')&&(!query||String(t.sender).toLowerCase().includes(query))).sort((a,b)=>String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
@@ -17,7 +17,7 @@ export default async function Inbox({searchParams}:{searchParams:Promise<Record<
  const thread=context?.thread||selected;
  const queue=sp.job?await loadRecord(env,'agent_jobs'):null,job=queue?.items?.find((j:any)=>j.id===sp.job),draft=job?.draftId?await loadRecord(env,'draft:'+job.draftId):null;
  return <div className="hub-stack">
-  <header className="hub-heading"><div><h1>Почта креаторов</h1><p className="sub">Все переписки двух Reddit-кампаний. Выбери человека, напиши инструкцию, проверь и отправь ответ.</p></div><form action={refreshRedditMail}><Submit>Обновить историю</Submit></form></header>{tabs}
+  <header className="hub-heading"><div><h1>Почта креаторов</h1><p className="sub">Ответы Green / Yellow с 25 октября и за ноябрь. Выбери человека, напиши инструкцию, проверь и отправь ответ.</p></div><form action={refreshRedditMail}><Submit>Обновить историю</Submit></form></header>{tabs}
   {sp.msg&&<div className="okbox" role="status">{sp.msg}</div>}
   <form className="hub-toolbar"><input type="hidden" name="source" value="reddit"/><input className="in" name="q" defaultValue={sp.q} placeholder="Поиск по email" aria-label="Поиск почты"/><select className="in" name="status" defaultValue={sp.status||'all'} aria-label="Статус ответа"><option value="all">Все переписки ({all.length})</option><option value="wait">Ждут нашего ответа ({all.filter(t=>t.state==='waiting_on_us').length})</option></select><button className="btn">Показать</button><span className="muted">История: {fmtTime(snapshot.syncedAt)} · выбранная ветка проверяется в Instantly</span></form>
   <div className="panel hub-mail">

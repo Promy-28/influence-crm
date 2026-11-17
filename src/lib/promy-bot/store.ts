@@ -1,6 +1,6 @@
 import {createCipheriv,createDecipheriv,createHash,randomBytes,timingSafeEqual,createHmac} from 'node:crypto';
 import {db} from '../db';
-export const campaigns=['2d02d560-a584-4844-948c-3ed035b9e9e8','9296d2af-c971-40c5-9572-440860bc2a65'];
+export const campaigns=['2d02d560-a584-4844-948c-3ed035b9e9e8'];
 export const sharedId=(id:string)=>/^(telegram|instantly|owner_mail_context|agent_jobs|agent_history_active|agent_history_sync|latest_digest)$/.test(id)||/^(agent_history:|draft:|tgmsg:|threadstate:|digest:|reminder:)/.test(id);
 export type StoreEnv={versions:Map<string,number>};
 export const environment=():StoreEnv=>({versions:new Map()});

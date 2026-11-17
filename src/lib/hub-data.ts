@@ -2,6 +2,7 @@ import {cache} from 'react';
 import {db,all} from './db';
 import {environment,loadRecord,decodeRecord} from './promy-bot/store';
 import {analyzeConversations} from './promy-bot/mail-analysis';
+import {focusSnapshot} from './promy-bot/mail-focus';
 export const RATINGS:Record<string,string>={great:'Зелёный',maybe:'Жёлтый',no:'Красный',unreviewed:'Не проверен',unverified:'Не проверено видео'};
 export const ratingClass=(r:string)=>r==='great'?'good':r==='maybe'?'warn':r==='no'?'bad':'';
 export const sourceSheet='https://docs.google.com/spreadsheets/d/1aiJ-YaWM__dEZxhUp21nKrN3fz3YKmlYQYPVM2OnQnI/edit#gid=286322810';
@@ -15,7 +16,7 @@ export const mailSnapshot=cache(async():Promise<any>=>{
  const emails=data.flatMap((r:{value:string})=>decodeRecord(r.value).items||[]);
  const analysis=analyzeConversations(emails,{complete:true});
  for(const t of analysis.threads as any[]){if(!t.sender){const original=emails.find((e:any)=>e.thread_id===t.id);t.sender=(String(original?.lead||original?.to_address_email_list||'').match(/[^\s,;<>]+@[^\s,;<>]+/)||[])[0]||'Адрес не определён'}}
- return {...analysis,emails,syncedAt:active.syncedAt};
+ return focusSnapshot({...analysis,emails,syncedAt:active.syncedAt});
 });
 export const redditDirectory=cache(async():Promise<any>=>{
  const [directory,legacy]=await Promise.all([
