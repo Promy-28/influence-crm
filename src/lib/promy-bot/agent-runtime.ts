@@ -129,6 +129,7 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
   }
   if(typeof answer!=='string'||answer.length>3500||typeof draftBody!=='string'||draftBody.length>2800||typeof reason!=='string'||reason.length>2000)throw Error('Invalid agent result');
   if(!answer.trim()&&!draftBody.trim())throw Error('Empty agent result');
+  if(job.source==='hub_batch'&&job.emailId&&!job.hubContext){const c=await getThread(job.emailId,{includeReferences:false});job.hubContext={recipient:c.canonical.from_address_email,eaccount:c.canonical.eaccount,subject:c.canonical.subject,threadId:c.canonical.thread_id,incomingText:unquotedText(c.canonical),incomingAt:c.canonical.timestamp_email}}
   let draft=null;
   if(draftBody.trim()&&!requiresClarification){
    if(!job.emailId)throw Error('Job has no canonical email');
@@ -142,7 +143,7 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
    await save('draft:'+draft.id,draft);job.draftId=draft.id;
   }
   job.status='delivering';job.answer=answer.trim();job.reason=reason;job.requiresClarification=!!requiresClarification;job.processedAt=iso();await save('agent_jobs',queue);
-  if(job.source==='hub_batch'){job.status='completed';await save('agent_jobs',queue);return {id,status:job.status,draftId:draft?.id||null}}
+  if(job.source==='hub_batch'){if(job.emailId)await save('decision:'+job.emailId,{id:'decision:'+job.emailId,emailId:job.emailId,status:draft?'resolved':'needs_decision',answer:job.answer,context:job.hubContext,requiresClarification:!draft,createdAt:iso()});job.status='completed';await save('agent_jobs',queue);return {id,status:job.status,draftId:draft?.id||null}}
   const text=draft?draftCard(draft,answer.trim()):answer.trim()||'Нужно уточнение перед подготовкой ответа.';
   try{
    const extra=draft?{reply_markup:{inline_keyboard:[[{text:'Отправить',callback_data:'send:'+draft.id},{text:'Отменить',callback_data:'cancel:'+draft.id}],[{text:'Показать письмо с баннером',url:'https://influence-crm-ashy.vercel.app/inbox?source=reddit&email='+encodeURIComponent(draft.recipient)+'&job='+encodeURIComponent(job.id)}]]}}:{};

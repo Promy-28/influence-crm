@@ -12,9 +12,12 @@ import {approvalToken,validDraftApproval,readyDraft,latestDrafts} from './draft-
 const runtime=(env:ReturnType<typeof environment>):any=>createAgentRuntime({env,loadRecord,saveRecord,telegram,api,campaigns});
 async function records(){return (await all<any>((from,to)=>db.from('promy_bot_records').select('id,value').like('id','draft:%').order('id').range(from,to))).map(r=>decodeRecord(r.value)).filter(d=>d.campaign===MAIL_FOCUS.campaign)}
 export async function draftWorkspace(){
- const env=environment(),[drafts,queue]=await Promise.all([records(),loadRecord(env,'agent_jobs')]);
+ const env=environment(),[drafts,queue,decisions]=await Promise.all([records(),loadRecord(env,'agent_jobs'),all<any>((from,to)=>db.from('promy_bot_records').select('id,value').like('id','decision:%').order('id').range(from,to))]);
  const visible=latestDrafts(drafts).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
- return {drafts:visible.map(d=>({...d,ready:readyDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:(queue?.items||[]).filter((j:any)=>j.source==='hub_batch'&&(!j.draftId||j.status!=='completed')).map((j:any)=>({id:j.id,emailId:j.emailId,status:j.status,answer:j.answer||'',error:j.prepareError||'',context:j.hubContext||null,requiresClarification:!!j.requiresClarification})),focus:MAIL_FOCUS.label};
+ const saved=decisions.map(r=>decodeRecord(r.value)).filter(d=>d.status==='needs_decision').map(d=>({...d,status:'completed'}));
+ const savedIds=new Set(saved.map(d=>d.emailId));
+ const jobs=(queue?.items||[]).filter((j:any)=>j.source==='hub_batch'&&(j.status!=='completed'||!j.draftId&&!savedIds.has(j.emailId))).map((j:any)=>({id:j.id,emailId:j.emailId,status:j.status,answer:j.answer||'',error:j.prepareError||'',context:j.hubContext||null,requiresClarification:!!j.requiresClarification}));
+ return {drafts:visible.map(d=>({...d,ready:readyDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs],focus:MAIL_FOCUS.label};
 }
 export async function queueDraftBatch(limit=30){
  limit=Math.max(1,Math.min(30,Math.floor(limit)||30));

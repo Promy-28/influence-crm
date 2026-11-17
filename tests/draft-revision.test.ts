@@ -15,4 +15,7 @@ test('new shown revision supersedes old version and binds natural approval to ex
  await r.enqueueJob({id:'batch:1',source:'hub_batch',text:'prepare for hub review',emailId:'incoming'});
  const batch=await r.completeJob({id:'batch:1',answer:'На проверку в хабе',draftBody:'Thank you for your message.'});
  assert.equal(records.get('draft:'+batch.draftId).status,'draft');assert.equal(records.get('draft:'+batch.draftId).source,'hub_batch');assert.equal(messages.length,2,'batch preparation sends neither Telegram spam nor email');
+ await r.enqueueJob({id:'batch:2',source:'hub_batch',text:'prepare reply',emailId:'incoming'});
+ await r.completeJob({id:'batch:2',answer:'Принять новую ставку или оставить прежнюю?',requiresClarification:true});
+ assert.equal(records.get('decision:incoming').status,'needs_decision');assert.equal(records.get('decision:incoming').context.incomingText,'Can you share the details?');assert.equal(messages.length,2);
 });
