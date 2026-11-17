@@ -3,16 +3,18 @@ import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { Nav } from "@/components/Nav";
 import { COOKIE, readToken } from "@/lib/session";
+import {mailSnapshot} from "@/lib/hub-data";
 import { db } from "@/lib/db";
 import { logout } from "@/lib/actions";
 async function NavCounts() {
   const c = async (q: PromiseLike<{ count: number | null }>) => (await q).count ?? 0;
   const { data: ap } = await db.from("settings").select("value").eq("key", "autopilot").maybeSingle();
-  const [review, inbox] = await Promise.all([
+  const [review, inbox, reddit] = await Promise.all([
     c(db.from("creators").select("id", { count: "exact", head: true }).eq("review_status", "pending").not("email", "is", null).not("ai_at", "is", null)),
     c(db.from("creators").select("id", { count: "exact", head: true }).eq(ap?.value === true ? "needs_human" : "needs_reply", true)),
+    mailSnapshot(),
   ]);
-  return <Nav counts={{ "/review": review, "/inbox": inbox }} />;
+  return <Nav counts={{ "/review": review, "/inbox": inbox + reddit.threads.filter((t:any)=>t.state==="waiting_on_us").length }} />;
 }
 export const metadata = { title: "Promy Creators", description: "Influence CRM", appleWebApp: { capable: true, title: "Creators", statusBarStyle: "black-translucent" as const } };
 export const viewport = { themeColor: "#0f0f14", viewportFit: "cover" as const };
@@ -29,3 +31,4 @@ export default async function Layout({ children }: { children: React.ReactNode }
     <main className="main">{children}</main>
   </div></body></html>;
 }
+

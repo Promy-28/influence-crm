@@ -1,5 +1,5 @@
-export const fmt = (d?: string | null) => { if (!d) return "—"; const x = new Date(d); return x.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/Warsaw" }); };
-export const fmtTime = (d?: string | null) => (d ? new Date(d).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Warsaw" }) : "—");
+export const fmt = (d?: string | null) => { if (!d) return "—"; const x = new Date(d); return x.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "America/New_York" }); };
+export const fmtTime = (d?: string | null) => (d ? new Date(d).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/New_York" }) : "—");
 export const pct = (a: number, b: number) => (b ? (100 * a) / b : null);
 export const showPct = (a: number, b: number, digits = 1) => { const p = pct(a, b); return p === null ? "—" : p === 0 ? "0%" : `${p.toFixed(p < 10 && digits ? digits : 0)}%`; };
 export const n = (v?: number | null) => (v === null || v === undefined ? "—" : v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e4 ? `${Math.round(v / 1e3)}K` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}K` : String(v));
@@ -37,3 +37,4 @@ export function stage(c: St): [string, string] {
   return ["Отклонён", "bad"];
 }
 export const STAGE_FILTERS: [string, string][] = [["", "Все"], ["video", "Прислали видео"], ["profile", "Заполнили профиль"], ["registered", "Зарегистрированы"], ["positive", "С интересом"], ["replied", "Ответили"], ["sent", "Написали"], ["queued", "В очереди"], ["approved", "Одобрены, не отправлены"], ["pending", "На проверке"], ["rejected", "Отклонены"], ["existing", "Из старых таблиц"]];
+
