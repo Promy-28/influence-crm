@@ -47,7 +47,7 @@ export async function processJob(env:StoreEnv,id:string){
 // Telegram transport payload is validated against the bound owner before use.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function receiveUpdate(update:any,options:{allowSend?:boolean}={}){
- const env=environment(),config=await loadRecord(env,'telegram');const m=update.callback_query?{...update.callback_query.message,from:update.callback_query.from}:update.message;
+ const env=Object.assign(environment(),{allowExternalSend:options.allowSend!==false}),config=await loadRecord(env,'telegram');const m=update.callback_query?{...update.callback_query.message,from:update.callback_query.from}:update.message;
  if(!config||m?.chat?.type!=='private'||m.chat.id!==config.chatId||m.from?.id!==config.userId||m.from.is_bot)return {ignored:true};
  if(!Number.isSafeInteger(update.update_id))return {ignored:true};
  if(options.allowSend===false&&dialogueAction(update.message?.text||'')==='confirm')return {ok:false,error:'OWNER_CONFIRMATION_MUST_COME_FROM_TELEGRAM'};

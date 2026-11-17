@@ -58,7 +58,7 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
  const literal=text.match(/^\/reply\s+([a-f0-9-]{36})\s+([\s\S]+)$/i);
  if(literal){if(literal[2].trim().length>2800){await tell('Сократи ответ до 2800 символов.');return true}const id='literal:'+update.update_id;await runtime.enqueueJob({id,text:'Готовый текст владельца. Не менять.',emailId:literal[1]});await runtime.completeJob({id,draftBody:literal[2].trim(),answer:'Твой текст сохранён. После просмотра нажми «Отправить».'});return true}
  const send=text.match(/^\/(send|cancel)\s+([a-f0-9]{8})$/i);
- if(send){const draft=await loadRecord(env,'draft:'+send[2]);if(!draft||draft.status!=='draft'){await tell('Черновик уже обработан или требует проверки. Повторно не отправляю.');return true}
+ if(send){if(send[1].toLowerCase()==='send'&&env.allowExternalSend===false){await tell('Отправка в тестовом запросе запрещена. Подтверди показанный черновик своим сообщением в Telegram.');return true}const draft=await loadRecord(env,'draft:'+send[2]);if(!draft||draft.status!=='draft'){await tell('Черновик уже обработан или требует проверки. Повторно не отправляю.');return true}
   if(send[1].toLowerCase()==='cancel'){draft.status='cancelled';await saveRecord(env,'draft:'+draft.id,draft);await tell('Черновик отменён: '+draft.id);return true}
   if(Date.now()-Date.parse(draft.createdAt)>86400000){draft.status='expired';await saveRecord(env,'draft:'+draft.id,draft);await tell('Черновик старше суток. Нужен свежий ответ.');return true}
   const c=await runtime.getThread(draft.emailId),current=c.canonical;
