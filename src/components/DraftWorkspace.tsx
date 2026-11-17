@@ -1,5 +1,4 @@
 'use client';
-import MailSourceTabs from './MailSourceTabs';
 import type {MailSource} from '@/lib/mail-source';
 import {useRef,useState} from 'react';
 type Workspace={drafts:any[];jobs:any[];focus:string;mailSource?:MailSource};
@@ -24,7 +23,6 @@ export default function DraftWorkspace({initial}:{initial:Workspace}){
  const revise=async(emailId:string,instruction:string,creatorId?:string)=>{await request({op:'revise',emailId,instruction,creatorId});await refresh();if(!busy){setBusy('prepare');await execute(runPreparation)}};
  return <div className="hub-stack">
   <header className="hub-heading"><div><h1>Черновики</h1><p className="sub">{data.focus}. Все ответы — здесь, по 30 на странице.</p></div><div className="row"><a className="btn" href="/test-email">Тестовое письмо себе</a><a className="btn" href={'/inbox?source='+source}>Переписки</a><button className="btn-p" onClick={prepare} disabled={!!busy}>Подготовить до 30 ответов</button></div></header>
-  <MailSourceTabs source={source} area="drafts"/>
   <div className="note">Прочитай исходное письмо и ответ → при необходимости нажми «Изменить» → отметь проверенные письма → «Подтвердить и отправить выбранные». Галочка сама ничего не отправляет. Имя, подпись и баннер Reply добавляются обязательно.</div>
   <nav className="tabs" aria-label="Состояние черновиков">{[['review','На проверке',data.drafts.filter(d=>d.status==='draft'&&d.macroName==='Reply'||['uncertain','stale'].includes(d.status)).length],['needs','Нужно твоё решение',needs.length],['sent','Отправлено',sent.length],['all','Все',data.drafts.length+needs.length]].map(([value,label,count])=><button key={value} aria-pressed={filter===value} className={'tab '+(filter===value?'on':'')} onClick={()=>changeFilter(String(value))}>{label} · {count}</button>)}</nav>
   <div className="hub-toolbar"><input className="in" aria-label="Найти email" placeholder="Найти email" value={query} onChange={e=>{setQuery(e.target.value);setPage(0)}}/><button className="btn" disabled={!!busy} onClick={()=>{setBusy('refresh');void execute(async()=>{await refresh()})}}>Обновить</button>{pending.length>0&&<><span className="muted">Готовятся / в очереди: {pending.length}</span><button className="btn" disabled={!!busy} onClick={resume}>Продолжить подготовку</button></>}</div>

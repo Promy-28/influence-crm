@@ -1,16 +1,18 @@
+import {workspaceMode} from '@/lib/workspace-mode';
+import {mailSource} from '@/lib/mail-source';
 import FoundCreators from '@/components/FoundCreators';
 import {redditDirectory,mailSnapshot,contactThreads,RATINGS,ratingClass,safeLinks,sourceSheet} from '@/lib/hub-data';
 import {saveCreatorChoice,requestCreatorReviews} from '@/lib/hub-actions';
 import {Filters,Submit,PickAll} from '@/components/ui';
 export default async function Creators({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
- const sp=await searchParams,source=sp.source==='found'?'found':'reddit';
- const tabs=<nav className="tabs" aria-label="Источник креаторов"><a className={'tab '+(source==='reddit'?'on':'')} href="/creators?source=reddit">Reddit и форма</a><a className={'tab '+(source==='found'?'on':'')} href="/creators?source=found">Найденные в соцсетях</a></nav>;
- if(source==='found')return <div className="hub-stack">{tabs}<div className="note">Этих креаторов нашли через поиск TikTok / Instagram. Источник и запрос указаны в таблице. <a className="l" href="/review">Проверить найденных →</a></div><FoundCreators searchParams={searchParams}/></div>;
+ const sp=await searchParams,source=(sp.source?mailSource(sp.source):await workspaceMode())==='apify'?'found':'reddit';
+
+ if(source==='found')return <div className="hub-stack"><div className="note">Этих креаторов нашли через поиск TikTok / Instagram. Источник и запрос указаны в таблице. <a className="l" href="/review">Проверить найденных →</a></div><FoundCreators searchParams={searchParams}/></div>;
  const [all,mail]=await Promise.all([redditDirectory(),mailSnapshot()]);const contacts=contactThreads(mail.threads);
  const query=(sp.q||'').toLowerCase();const rows=all.filter(c=>(!sp.rating||c.rating===sp.rating)&&(!query||[c.email,c.payload.name,c.payload.reddit].join(' ').toLowerCase().includes(query)));
  const page=Math.max(0,Number(sp.page)||0),shown=rows.slice(page*50,page*50+50);
  return <div className="hub-stack">
-  <header className="hub-heading"><div><h1>Креаторы</h1><p className="sub">Проверяй качество, сохраняй причину выбора и переходи к переписке.</p></div><a className="btn" href="/guide">Как работать</a></header>{tabs}
+  <header className="hub-heading"><div><h1>Креаторы</h1><p className="sub">Проверяй качество, сохраняй причину выбора и переходи к переписке.</p></div><a className="btn" href="/guide">Как работать</a></header>
   {sp.msg&&<div className="okbox" role="status">{sp.msg}</div>}
   <div className="hub-toolbar"><span>{all.length} креаторов · исходные цвета и новые заявки из формы</span><a className="l" href={sourceSheet} target="_blank" rel="noreferrer">Исходная таблица ↗</a><a className="btn" href="/import?source=reddit">Добавить из Reddit</a></div>
   <Filters><input type="hidden" name="source" value="reddit"/><input className="in" name="q" defaultValue={sp.q} placeholder="Имя, Reddit или email" aria-label="Поиск креаторов"/><select className="in" name="rating" defaultValue={sp.rating||''} aria-label="Твой выбор"><option value="">Все цвета</option>{Object.entries(RATINGS).filter(([k])=>k!=='unverified').map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Filters>

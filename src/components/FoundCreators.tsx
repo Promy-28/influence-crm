@@ -6,7 +6,7 @@ const wrap = (s: string) => `%${s.replace(/[%,()]/g, " ")}%`;
 export default async function Creators({ searchParams }: { searchParams: Promise<{ st?: string; p?: string; q?: string; arm?: string; page?: string }> }) {
   const sp = await searchParams; const page = Math.max(0, Number(sp.page ?? 0));
   let q = db.from("creators").select("id,platform,handle,name,email,avatar_url,followers,review_status,queued_at,first_sent_at,opened_at,replied_at,positive_at,registered_at,profile_done_at,first_video_at,videos,do_not_contact,bounced_at,unsubscribed_at,source,created_at,arms(label),queries(kind,value)", { count: "exact" });
-  q=q.not("source","in",'("import:Reddit","import:Форма","reddit")');
+  q=q.eq("source","apify");
   const st = sp.st ?? "";
   if (st === "video") q = q.not("first_video_at", "is", null); else if (st === "profile") q = q.not("profile_done_at", "is", null); else if (st === "registered") q = q.not("registered_at", "is", null);
   else if (st === "positive") q = q.not("positive_at", "is", null); else if (st === "replied") q = q.not("replied_at", "is", null); else if (st === "sent") q = q.not("first_sent_at", "is", null);
