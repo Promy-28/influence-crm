@@ -19,3 +19,5 @@ test('approved brief template handles routine requests without a model, but neve
 });
 
 test('a normal punctuation mark in a creator signoff is not part of their name',()=>{assert.equal(greetingName('Best,\nMarie.','yeleeoh'),'Marie')});
+
+test('removing internal notes does not leave an empty summary clause',()=>{assert.equal(cleanOwnerSummary('Креатор просит детали. Предлагаем: .'),'Креатор просит детали.');assert.equal(cleanOwnerSummary('Креатор ответил. Ответ готов к отправке в требуемом стиле.'),'Креатор ответил.')});
