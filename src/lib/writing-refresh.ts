@@ -28,8 +28,8 @@ export async function completeWritingRefresh(env:any,job:any,args:any){
  const body=String(args.draftBody||'').trim(),answer=cleanOwnerSummary(String(args.answer||''));if(body.length>2800)throw Error('WRITING_TOO_LONG');
  const issue=creatorPolicyIssue(body);let draft:any=null;
  if(body&&!args.requiresClarification&&!issue){
- const name=greetingName(parent.incomingText,parent.macroFirstName);
- draft={...parent,...renderReplyMacro({body,firstName:name,signature:parent.signatureHtml}),id:crypto.randomUUID().slice(0,8),status:'draft',createdAt:new Date().toISOString(),summary:answer,jobId:job.id,writingRefreshOf:parent.id};delete draft.writingRefreshRequestedAt;
+ const name=greetingName(parent.incomingText||'',parent.macroFirstName||'there');let signature=parent.signatureHtml;if(!signature){const inst=await loadRecord(env,'instantly'),account=await api(inst.key,'/accounts/'+encodeURIComponent(parent.eaccount));if(String(account.email||'').toLowerCase()!==String(parent.eaccount||'').toLowerCase()||!account.signature)throw Error('REPLY_MACRO_SIGNATURE_MISSING');signature=account.signature}
+ draft={...parent,...renderReplyMacro({body,firstName:name,signature}),id:crypto.randomUUID().slice(0,8),status:'draft',createdAt:new Date().toISOString(),summary:answer,jobId:job.id,writingRefreshOf:parent.id};delete draft.writingRefreshRequestedAt;
  await saveRecord(env,'draft:'+draft.id,draft);
  }
  for(let attempt=0;attempt<3;attempt++){const q=await loadRecord(env,'agent_jobs'),saved=q.items.find((j:any)=>j.id===job.id);Object.assign(saved,{status:'completed',answer:issue||answer,requiresClarification:!draft,draftId:draft?.id||null,processedAt:new Date().toISOString()});try{await saveRecord(env,'agent_jobs',q);break}catch(e){if(attempt===2)throw e}}
@@ -39,6 +39,6 @@ export async function completeWritingRefresh(env:any,job:any,args:any){
 export async function processWritingRefresh(env:any,job:any){
  const parent=await loadRecord(env,'draft:'+job.id.split(':').at(-1));if(!parent)throw Error('WRITING_PARENT_MISSING');
  const preset=approvedBriefRewrite(parent);if(preset)return {processed:true,template:true,...await completeWritingRefresh(env,job,preset)};
- const result=await generateAnswer({task:'copyedit_unsent_draft',ownerInstruction:job.text,previousDraft:{body:parent.replyContent||parent.body,summary:parent.summary,ownerEditedAt:parent.editedAt||null},conversation:{canonical:{body:{text:parent.incomingText}},briefContext:parent.briefContext},policy:CREATOR_POLICY});
+ const input={task:'copyedit_unsent_draft',ownerInstruction:job.text,previousDraft:{body:parent.replyContent||parent.body,summary:parent.summary,ownerEditedAt:parent.editedAt||null},conversation:{canonical:{body:{text:parent.incomingText}},briefContext:parent.briefContext},policy:CREATOR_POLICY};let result;try{result=await generateAnswer(input)}catch(e){if(!(e instanceof Error)||e.message!=='BOT_MODEL_INVALID')throw e;result=await generateAnswer({...input,formatReminder:'Return ONLY valid JSON with answer:string, draftBody:string (empty string if no draft), requiresClarification:boolean. Keep the email body under 2800 characters.'})}
  return {processed:true,...await completeWritingRefresh(env,job,result)};
 }
