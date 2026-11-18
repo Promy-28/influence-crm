@@ -82,12 +82,12 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
   }).filter(e=>e.score>0).sort((a,b)=>b.score-a.score).slice(0,3).map(({score,...e})=>e);
   return {complete,canonical:compact(current),thread,briefContext,creatorPolicy:CREATOR_POLICY,campaign:campaignInfo(current.campaign_id),persona:OWNER_PERSONA,referenceReplies,referenceWarning:'Historical examples retrieved by keyword overlap. Their budgets, rights and scope are specific to those creators, not authority for a new promise.'};
  }
- async function enqueueJob({id,text,emailId=null,source='telegram',replyToMessageId=null,mailSource='reddit',creatorId=null}){
+ async function enqueueJob({id,text,emailId=null,source='telegram',replyToMessageId=null,mailSource='reddit',creatorId=null,kind='reply',followupAnchor=null,automaticPolicy=null,hubContext=null}){
   if(typeof id!=='string'||!id||id.length>200||typeof text!=='string'||!text.trim()||text.length>12000)throw Error('Invalid job');
   const queue=await load('agent_jobs')||{items:[]};const existing=queue.items.find(j=>j.id===id);if(existing)return existing;
   // Never evict unfinished work to silently make room.
   if(queue.items.length>=100){queue.items=queue.items.filter(j=>j.status==='new'||j.status==='delivering'||j.status==='uncertain');if(queue.items.length>=100)throw Error('Agent queue is full')}
-  const job={id,text:text.trim(),emailId,source,mailSource,creatorId,replyToMessageId,status:'new',createdAt:iso()};queue.items.push(job);await save('agent_jobs',queue);return job;
+  const job={id,text:text.trim(),emailId,source,mailSource,creatorId,replyToMessageId,kind,followupAnchor,automaticPolicy,hubContext,status:'new',createdAt:iso()};queue.items.push(job);await save('agent_jobs',queue);return job;
  }
  async function resolveContact(address){
   address=String(address).trim().toLowerCase();if(contactEmails(address)[0]!==address)throw Error('Invalid contact email');
