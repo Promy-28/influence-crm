@@ -1,3 +1,4 @@
+import {CREATOR_BRIEF} from '../creator-policy.ts';
 // Reply macro observed in the owner's Instantly editor. Variables stay provider-derived.
 import {signedFirstName,greetingName,WRITING_STYLE_VERSION} from '../writing-style.ts';
 import {BANNER_IMAGE,BANNER_TARGET,withCampaignBanner} from '../email-branding.ts';
@@ -10,7 +11,7 @@ export function renderReplyMacro(input:{body:string;firstName:string;signature:s
  if(!input.signature.trim()||input.signature.length>12000)throw Error('REPLY_MACRO_SIGNATURE_MISSING');
  if(/<(?:script|iframe|object|embed|form|meta|link|svg)\b|\son[a-z]+\s*=|javascript:/i.test(input.signature))throw Error('REPLY_MACRO_SIGNATURE_UNSAFE');
  const signatureHtml=/<[a-z]/i.test(input.signature)?input.signature:esc(input.signature).replace(/\n/g,'<br>'),signatureText=plainSignature(signatureHtml);
- let content=input.body.trim().replace(/^(?:hi|hey|hello|dear)\b[^\n]*[,!]\s*\n+/i,'');
+ let content=input.body.replace(/\bBRIEF_URL\b/g,CREATOR_BRIEF).trim().replace(/^(?:hi|hey|hello|dear)\b[^\n]*[,!]\s*\n+/i,'');
  if(content.endsWith(signatureText))content=content.slice(0,-signatureText.length).trim();
  content=content.replace(/\n+(?:best regards|best|kind regards|regards|warmly|warm regards|cheers|sincerely)[,\s]*\n[\s\S]*$/i,'').trim();
  if(!content)throw Error('REPLY_MACRO_EMPTY_CONTENT');

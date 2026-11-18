@@ -12,3 +12,5 @@ test('macro refuses missing variables and unsafe signature instead of silently l
 test('macro uses exact current campaign lead and sender account signature, never guessed names',async()=>{
  const calls:string[]=[];const result=await composeReplyMacro(async(path,body)=>{calls.push(path);if(path.startsWith('/accounts/'))return {email:'kim@example.com',signature:'Best regards,\nKim'};assert.deepEqual(body,{contacts:['creator@example.com'],limit:100});return {items:[{email:'other@example.com',first_name:'Wrong'},{email:'creator@example.com',campaign:'old',first_name:'Old'},{email:'creator@example.com',campaign:'current',first_name:'Nadia'}]}},{body:'Thank you.',recipient:'creator@example.com',eaccount:'kim@example.com',campaignId:'current'});assert.equal(result.macroFirstName,'Nadia');assert.equal(calls.length,2);
 });
+
+test('the known brief example token always resolves to the approved link',()=>{const d=renderReplyMacro({firstName:'Stas',signature:'Kim',body:'Here is the brief: BRIEF_URL'});assert.ok(d.body.includes('https://docs.google.com/document/d/16Nff-'));assert.ok(!d.body.includes('BRIEF_URL'))});

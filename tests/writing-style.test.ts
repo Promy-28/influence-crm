@@ -17,3 +17,5 @@ test('unknown handles are never presented as a real name',()=>{assert.equal(gree
 test('approved brief template handles routine requests without a model, but never overwrites commercial terms or owner edits',()=>{
  const d={replyContent:'Here is the brief: '+CREATOR_BRIEF,incomingText:'Can you send the brief, scope and contract?'};assert.ok(approvedBriefRewrite(d)?.draftBody.includes('unpaid'));assert.equal(approvedBriefRewrite({...d,editedAt:'today'}),null);assert.equal(approvedBriefRewrite({...d,replyContent:d.replyContent+' The rate is $50.'}),null);assert.equal(approvedBriefRewrite({...d,incomingText:'What usage rights and payment terms apply?'}),null);assert.equal(approvedBriefRewrite({...d,kind:'followup'}),null);
 });
+
+test('a normal punctuation mark in a creator signoff is not part of their name',()=>{assert.equal(greetingName('Best,\nMarie.','yeleeoh'),'Marie')});
