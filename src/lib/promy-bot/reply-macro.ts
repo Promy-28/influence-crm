@@ -1,5 +1,5 @@
 // Reply macro observed in the owner's Instantly editor. Variables stay provider-derived.
-import {signedFirstName,WRITING_STYLE_VERSION} from '../writing-style.ts';
+import {signedFirstName,greetingName,WRITING_STYLE_VERSION} from '../writing-style.ts';
 import {BANNER_IMAGE,BANNER_TARGET,withCampaignBanner} from '../email-branding.ts';
 export const REPLY_BANNER=BANNER_IMAGE;
 export const REPLY_MACRO_VERSION='reply-2026-11-18-human';
@@ -25,5 +25,5 @@ export async function composeReplyMacro(provider:(path:string,body?:unknown)=>Pr
  const exact=page.items.filter((l:any)=>String(l.email||'').toLowerCase()===input.recipient.toLowerCase()),campaign=exact.filter((l:any)=>l.campaign===input.campaignId),leads=campaign.length?campaign:exact;
  const names=[...new Set(leads.map((l:any)=>String(l.first_name||l.payload?.firstName||'').trim()).filter(Boolean))];
  const signed=signedFirstName(input.incomingText||'');if(!signed&&names.length!==1)throw Error('REPLY_MACRO_FIRST_NAME_MISSING');
- return {...renderReplyMacro({body:input.body,firstName:signed||String(names[0]),signature:String(account.signature||'')}),greetingSource:signed?'creator_signature':'provider_lead'};
+ return {...renderReplyMacro({body:input.body,firstName:greetingName(input.incomingText||'',String(names[0]||'')),signature:String(account.signature||'')}),greetingSource:signed?'creator_signature':'provider_lead'};
 }
