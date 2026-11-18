@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {followupDue,followupCurrent} from '../src/lib/followup-policy.ts';
+import {followupDue,followupCurrent,followupProposal} from '../src/lib/followup-policy.ts';
 import {approvalToken} from '../src/lib/draft-approval.ts';
 const now=Date.parse('2026-11-17T12:00:00Z');
 const base={state:'waiting_on_them',latestInboundId:'incoming',latestMessageId:'outgoing',lastMessageAt:'2026-11-15T12:00:00Z'};
@@ -17,4 +17,10 @@ test('new creator reply or outgoing invalidates exact followup; approvals bind i
  assert.equal(followupCurrent({complete:true,thread:{...base,latestMessageId:'new'}},'outgoing',now),false);
  assert.equal(followupCurrent({complete:true,thread:{...base,state:'waiting_on_us'}},'outgoing',now),false);
  const d={id:'test',kind:'followup',followupAnchor:'outgoing'};const token=approvalToken(d,'test');assert.notEqual(token,approvalToken({...d,followupAnchor:'other'},'test'));assert.notEqual(token,approvalToken({...d,kind:'reply'},'test'));
+});
+
+test('waiting on creator is the reason for a followup, but an actual closed negotiation never gets the fallback',()=>{
+ assert.ok(followupProposal('Мяч на стороне креатора, фолоуап писать рано.','',true).draftBody);
+ assert.equal(followupProposal('Диалог закрыт после отказа, мяч на стороне креатора.','',true).draftBody,'');
+ assert.equal(followupProposal('Нужно решение по правам.','',true).requiresClarification,true);
 });
