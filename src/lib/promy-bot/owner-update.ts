@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment, @typescript-eslint/no-unused-vars, prefer-const */
 // @ts-nocheck
 // Shared exact-draft confirmation logic from Creator Hub. No model can call send.
-import {contactEmails} from './agent-runtime';
+  import {contactEmails} from './agent-runtime';
 import {unquotedText} from './mail-analysis';
 import {loadRecord,saveRecord,telegram,api} from './store';
 import {dialogueAction,shownDraftFingerprint} from './dialogue-actions';
@@ -63,7 +63,8 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
  if(send){if(send[1].toLowerCase()==='send'&&env.allowExternalSend===false){await tell('Отправка в тестовом запросе запрещена. Подтверди показанный черновик своим сообщением в Telegram.');return true}const draft=await loadRecord(env,'draft:'+send[2]);if(!draft||draft.status!=='draft'){await tell('Черновик уже обработан или требует проверки. Повторно не отправляю.');return true}
   if(send[1].toLowerCase()==='cancel'){draft.status='cancelled';await saveRecord(env,'draft:'+draft.id,draft);await tell('Черновик отменён: '+draft.id);return true}
   if(Date.now()-Date.parse(draft.createdAt)>86400000){draft.status='expired';await saveRecord(env,'draft:'+draft.id,draft);await tell('Черновик старше суток. Нужен свежий ответ.');return true}
-  const c=await runtime.getThread(draft.emailId),current=c.canonical;
+  if(draft.kind==='followup'){await tell('Проверь и подтверди этот фолоуап в хабе: https://influence-crm-ashy.vercel.app/drafts?view=followup');return true}
+   const c=await runtime.getThread(draft.emailId),current=c.canonical;
   await (runtime.assertFocus||assertMailFocus)(current);
   const state=await loadRecord(env,'threadstate:'+current.thread_id);if(state?.closed||state?.status==='closed'||Date.parse(state?.snoozedUntil||'')>Date.now()){await tell('Переписка закрыта или отложена. Сначала проверь её статус.');return true}
   if(!c.complete||c.thread?.state!=='waiting_on_us'||c.thread.latestMessageId!==current.id||current.eaccount!==draft.eaccount||current.from_address_email!==draft.recipient||current.thread_id!==draft.threadId){draft.status='stale';await saveRecord(env,'draft:'+draft.id,draft);await tell('Переписка изменилась. Подготовь ответ на последнее письмо.');return true}

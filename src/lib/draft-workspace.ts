@@ -1,4 +1,5 @@
 import 'server-only';
+import {sendFollowupDraft} from './auto-mail';
 import {sourceMatches,type MailSource} from './mail-source';
 import {apifyCandidates,apifyRuntime,apifyCreator,liveApifyConversation} from './apify-mail';
 import {db,all} from './db';
@@ -22,7 +23,7 @@ export async function draftWorkspace(source:MailSource='reddit'){
  const scopedDecisions=decisions.map(r=>decodeRecord(r.value)).filter(d=>sourceMatches(d,source));
  const saved=scopedDecisions.filter(d=>d.status==='needs_decision').map(d=>({...d,status:'completed'}));
  const savedIds=new Set(scopedDecisions.map(d=>d.emailId));
- const jobs=(queue?.items||[]).filter((j:any)=>j.source==='hub_batch'&&sourceMatches(j,source)&&(j.status!=='completed'||!j.draftId&&!savedIds.has(j.emailId))).map((j:any)=>({id:j.id,emailId:j.emailId,creatorId:j.creatorId||null,status:j.status,answer:j.answer||'',error:j.prepareError||'',context:j.hubContext||null,requiresClarification:!!j.requiresClarification}));
+ const jobs=(queue?.items||[]).filter((j:any)=>j.source==='hub_batch'&&sourceMatches(j,source)&&(j.status!=='completed'||!j.draftId&&!savedIds.has(j.emailId))).map((j:any)=>({id:j.id,kind:j.kind,emailId:j.emailId,creatorId:j.creatorId||null,status:j.status,answer:j.answer||'',error:j.prepareError||'',context:j.hubContext||null,requiresClarification:!!j.requiresClarification}));
  return {drafts:visible.map(d=>({...d,campaignIds:campaignIds(d),briefContext:d.briefContext||briefEvidence(history.emails.filter((e:any)=>e.campaign_id===d.campaign&&e.eaccount===d.eaccount&&(e.thread_id===d.threadId||String(e.lead||e.to_address_email_list||'').toLowerCase()===d.recipient?.toLowerCase()))),ready:readyDraft(d),editable:editableDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs].map(j=>({...j,campaignIds:[...(membership.get(String(j.context?.recipient||'').toLowerCase())||[])]})),mailSource:source,focus:source==='apify'?'Apify · TikTok / Instagram':MAIL_FOCUS.label};
 }
 export async function queueDraftBatch(limit=30,source:MailSource='reddit'){
@@ -55,6 +56,7 @@ export async function sendWorkspaceDraft(id:string,token:unknown,source:MailSour
  const env=environment(),d=await loadRecord(env,'draft:'+id);
  if(!d||!sourceMatches(d,source)||!readyDraft(d)||!validDraftApproval(d,token,process.env.APP_PASSWORD!))throw Error('Текст изменился или устарел. Перечитай и отметь его заново.');
  const latest=latestDrafts(await records(source));if(!latest.some(x=>x.id===id))throw Error('Есть более новая версия ответа. Обнови страницу.');
+ if(d.kind==='followup')return sendFollowupDraft(env,d);
  const selectedRuntime=source==='apify'?(await apifyRuntime(env,d.creatorId)).runtime:runtime(env);
  const [config,inst]=await Promise.all([loadRecord(env,'telegram'),loadRecord(env,'instantly')]);
  await processOwnerUpdate({update_id:Date.now(),message:{message_id:0,chat:{id:config.chatId,type:'private'},from:{id:config.userId,is_bot:false},text:'/send '+id}},config,inst,env,async()=>({}),selectedRuntime);
@@ -65,6 +67,7 @@ export async function requestWorkspaceRevision(emailId:string,instruction:string
  if(source==='apify'){if(!creatorId)throw Error('Нужен креатор Apify');await apifyCreator(creatorId)}
  const env=environment(),r=runtime(env);const id='batch:'+crypto.randomUUID();
  await r.enqueueJob({id,source:'hub_batch',mailSource:source,creatorId,emailId:emailId||null,text:instruction});
+ const q=await loadRecord(env,'agent_jobs'),previous=[...(q?.items||[])].reverse().find((j:any)=>j.id!==id&&j.emailId===emailId&&j.mailSource===source);if(previous?.kind==='followup'){Object.assign(q.items.find((j:any)=>j.id===id),{kind:'followup',followupAnchor:previous.followupAnchor});await saveRecord(env,'agent_jobs',q)}
  for(const old of await records(source))if(old.emailId===emailId&&old.status==='draft'){old.status='revision_requested';await saveRecord(env,'draft:'+old.id,old)}
  return {queued:1,jobId:id};
 }

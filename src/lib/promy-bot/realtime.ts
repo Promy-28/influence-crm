@@ -1,3 +1,4 @@
+import {completeFollowupJob,processFollowupJob} from '../auto-mail';
 import {prepareApifyJob,completeApifyJob} from '../apify-mail';
 import {createAgentRuntime} from './agent-runtime';
 import {processOwnerUpdate} from './owner-update';
@@ -9,10 +10,11 @@ import {mailIntent,mailOverview,overviewText,choosePending} from './mail-workflo
 import {dialogueAction} from './dialogue-actions';
 import {unquotedText} from './mail-analysis';
 const runtime=(env:StoreEnv)=>createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campaigns});
-export const completeCloudJob=async(env:StoreEnv,args:Parameters<ReturnType<typeof runtime>['completeJob']>[0])=>{const q=await loadRecord(env,'agent_jobs'),job=q?.items?.find((j:any)=>j.id===args.id);return job?.mailSource==='apify'?completeApifyJob(env,job,args):runtime(env).completeJob(args)};
+export const completeCloudJob=async(env:StoreEnv,args:Parameters<ReturnType<typeof runtime>['completeJob']>[0])=>{const q=await loadRecord(env,'agent_jobs'),job=q?.items?.find((j:any)=>j.id===args.id);return job?.kind==='followup'?completeFollowupJob(env,job,args):job?.mailSource==='apify'?completeApifyJob(env,job,args):runtime(env).completeJob(args)};
 export async function processJob(env:StoreEnv,id:string){
  const q=await loadRecord(env,'agent_jobs'),job=q?.items?.find((j:{id:string})=>j.id===id);
  if(!job||job.status!=='new')return {processed:false};
+ if(job.kind==='followup')return processFollowupJob(env,job);
  if(job.mailSource==='apify')return prepareApifyJob(env,job);
  const r=runtime(env);let context:Awaited<ReturnType<typeof r.getThread>>|null=null;
  const priorWalk=await loadRecord(env,'owner_mail_walk'),revision=job.source!=='hub_batch'&&dialogueAction(job.text)==='revise',intent=job.source==='hub_batch'||revision?'contact':mailIntent(job.text,!!priorWalk);

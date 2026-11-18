@@ -1,3 +1,4 @@
+import {queueAutomaticMail} from '@/lib/auto-mail';
 import {mailSource} from '@/lib/mail-source';
 import {NextResponse} from 'next/server';
 import {requireSession} from '@/lib/db';
@@ -9,7 +10,8 @@ export async function GET(req:Request){await requireSession();return NextRespons
 export async function POST(req:Request){
  await requireSession();if(req.headers.get('origin')!==new URL(req.url).origin)return NextResponse.json({error:'Недопустимый источник запроса'},{status:403});
  try{const b=await req.json(),source=mailSource(b.source);let result;
-  if(b.op==='queue')result=await queueDraftBatch(b.limit,source);
+  if(b.op==='auto')result=await queueAutomaticMail();
+  else if(b.op==='queue')result=await queueDraftBatch(b.limit,source);
   else if(b.op==='next')result=await prepareNextDraft(source);
   else if(b.op==='retry')result=await retryDraftPreparation(source);
   else if(b.op==='edit'&&/^[a-f0-9]{8}$/.test(b.id)&&typeof b.body==='string')result=await editWorkspaceDraft(b.id,b.approval,b.body,source);
