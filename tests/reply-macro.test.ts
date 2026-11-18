@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {renderReplyMacro,composeReplyMacro,REPLY_BANNER} from '../src/lib/promy-bot/reply-macro.ts';
 test('Reply preserves provider name/signature/banner and inserts escaped content between them once',()=>{
  const r=renderReplyMacro({firstName:'Nadia',signature:'<div>Best regards,<br>Kim<br>Influencer Manager at Promy</div>',body:'Hi Nadia,\n\nThanks for the update.\n\nBest regards,\nKim\nInfluencer Manager at Promy'});
- assert.equal(r.body,'Hey Nadia ,\n\nThanks for the update.\n\nBest regards,\nKim\nInfluencer Manager at Promy');assert.equal(r.replyContent,'Thanks for the update.');assert.ok(r.html.indexOf('Hey&nbsp;Nadia')<r.html.indexOf('Thanks for'));assert.ok(r.html.indexOf('Thanks for')<r.html.indexOf('id="signature"'));assert.ok(r.html.indexOf('id="signature"')<r.html.indexOf(REPLY_BANNER));assert.match(r.html,/width:600px/);assert.equal(r.html.split('<img ').length-1,1);
+ assert.equal(r.body,'Hey Nadia,\n\nThanks for the update.\n\nBest regards,\nKim\nInfluencer Manager at Promy');assert.equal(r.replyContent,'Thanks for the update.');assert.ok(r.html.indexOf('Hey&nbsp;Nadia')<r.html.indexOf('Thanks for'));assert.ok(r.html.indexOf('Thanks for')<r.html.indexOf('id="signature"'));assert.ok(r.html.indexOf('id="signature"')<r.html.indexOf(REPLY_BANNER));assert.match(r.html,/width:600px/);assert.equal(r.html.split('<img ').length-1,1);
  assert.ok(renderReplyMacro({firstName:'A & B',signature:'Kim',body:'2 < 3'}).html.includes('2 &lt; 3'));
 });
 test('macro refuses missing variables and unsafe signature instead of silently losing branding',()=>{

@@ -1,3 +1,4 @@
+import {queueWritingRefresh} from '@/lib/writing-refresh';
 import {queueAutomaticMail} from '@/lib/auto-mail';
 import {syncBranding} from '@/lib/branding-sync';
 import {NextResponse} from 'next/server';
@@ -12,6 +13,7 @@ export async function POST(req:Request){
  if(!adminAuthorized(req))return NextResponse.json({error:'Unauthorized'},{status:401});
  const env=environment();let b;try{b=await req.json()}catch{return NextResponse.json({error:'Invalid JSON'},{status:400})}
  try{
+  if(b.op==='queueWritingRefresh')return NextResponse.json(await queueWritingRefresh());
   if(b.op==='autoQueue')return NextResponse.json(await queueAutomaticMail());
   if(b.op==='syncBranding')return NextResponse.json(await syncBranding());
   if(b.op==='apifyThread'&&typeof b.emailId==='string')return NextResponse.json(await apifyConversationByEmailId(env,b.emailId));

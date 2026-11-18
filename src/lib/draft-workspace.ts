@@ -39,7 +39,7 @@ export async function queueDraftBatch(limit=30,source:MailSource='reddit'){
 }
 export async function prepareNextDraft(source:MailSource='reddit'){
  const env=environment(),pace=await loadRecord(env,'_draft_provider_pace');if(pace?.nextAt>Date.now())return {processed:false,waitMs:pace.nextAt-Date.now()};const queue=await loadRecord(env,'agent_jobs');
- const job=queue?.items?.find((j:any)=>j.source==='hub_batch'&&sourceMatches(j,source)&&j.status==='new'&&(!j.prepareError||j.retryAt&&Date.parse(j.retryAt)<=Date.now()));
+ const job=[...(queue?.items||[])].sort((a:any,b:any)=>Number(b.id.startsWith('writing:'))-Number(a.id.startsWith('writing:'))).find((j:any)=>j.source==='hub_batch'&&sourceMatches(j,source)&&j.status==='new'&&(!j.prepareError||j.retryAt&&Date.parse(j.retryAt)<=Date.now()));
  if(!job)return {processed:false};
  await saveRecord(env,'_draft_provider_pace',{nextAt:Date.now()+7000});
  const marker='batchwork:'+job.id,lease=await loadRecord(env,marker);if(lease?.until>Date.now())return {processed:false,busy:true};
