@@ -1,4 +1,6 @@
 import {queueWritingRefresh} from '@/lib/writing-refresh';
+import {mergeDirectoryPayload} from '@/lib/reddit-intake';
+import {syncRedditForm} from '@/lib/reddit-form-sync';
 import {queueAutomaticMail} from '@/lib/auto-mail';
 import {syncBranding} from '@/lib/branding-sync';
 import {NextResponse} from 'next/server';
@@ -16,12 +18,18 @@ export async function POST(req:Request){
   if(b.op==='queueWritingRefresh')return NextResponse.json(await queueWritingRefresh());
   if(b.op==='autoQueue')return NextResponse.json(await queueAutomaticMail());
   if(b.op==='syncBranding')return NextResponse.json(await syncBranding());
+  if(b.op==='syncRedditForm')return NextResponse.json(await syncRedditForm());
   if(b.op==='apifyThread'&&typeof b.emailId==='string')return NextResponse.json(await apifyConversationByEmailId(env,b.emailId));
   if(b.op==='completeJob'&&b.args&&typeof b.args.id==='string')return NextResponse.json(await completeCloudJob(env,b.args));
   if(b.op==='directorySync'){
    if(!Array.isArray(b.records)||b.records.length>1000)throw Error('Invalid directory');
    const rows=b.records.map((r:any)=>{if(!/^[a-f0-9]{16}$/.test(r.id)||typeof r.email!=='string'||!r.payload)throw Error('Invalid creator');return {id:r.id,email:r.email.toLowerCase(),payload:r.payload,updated_at:new Date().toISOString()}});
-   if(rows.length)await db.from('reddit_creator_directory').upsert(rows,{onConflict:'email'});
+   const {data:previous}=await db.from('reddit_creator_directory').select('id,email,payload,updated_at').limit(1000);
+   const byEmail=new Map((previous||[]).map((r:any)=>[r.email,r]));
+   for(const row of rows){const existing:any=byEmail.get(row.email);row.payload=mergeDirectoryPayload(existing?.payload,row.payload);
+    if(!existing)await db.from('reddit_creator_directory').insert(row);
+    else if(JSON.stringify(existing.payload)!==JSON.stringify(row.payload))await db.from('reddit_creator_directory').update({payload:row.payload,updated_at:row.updated_at}).eq('id',existing.id).eq('updated_at',existing.updated_at);
+   }
    if(b.status)await saveRecord(env,'_creator_agent_status',b.status);
    return NextResponse.json({synced:rows.length});
   }

@@ -9,10 +9,16 @@ import {processOwnerUpdate} from './promy-bot/owner-update';
 import {parseCsv} from './text';
 import {createHash} from 'node:crypto';
 import {validApproval} from './hub-outreach';
+import {reviewFingerprint} from './reddit-intake';
+import {syncRedditForm} from './reddit-form-sync';
 import {validDraftApproval,readyDraft} from './draft-approval';
 import {renderReplyMacro} from './promy-bot/reply-macro';
 const runtime=(env:ReturnType<typeof environment>):any=>createAgentRuntime({env,loadRecord,saveRecord,telegram,api,campaigns});
 const go=(path:string,msg:string):never=>redirect(path+(path.includes('?')?'&':'?')+'msg='+encodeURIComponent(msg));
+export async function checkRedditForm(){
+ await requireSession();let message='';try{const r=await syncRedditForm();message=`Форма обновлена: новых ${r.added}, изменённых ${r.updated}, повторных строк ${r.duplicates}. В очереди; агент берёт до 20 за час. Некорректные email: строки ${r.invalidRows.join(', ')||'нет'}. В Instantly никто не добавлен.`}catch(e){message=e instanceof Error?e.message:'Не удалось прочитать форму'}
+ revalidatePath('/creators');go('/creators?source=reddit',message);
+}
 export async function saveCreatorChoice(f:FormData){
  const who=await requireSession(),id=String(f.get('id')||''),rating=String(f.get('rating')||''),reason=String(f.get('reason')||'').trim();
  if(!['great','maybe','no','unreviewed'].includes(rating)||!reason||reason.length>1500)go('/creators?source=reddit','Выбери цвет и кратко объясни причину — по ней учится агент.');
@@ -60,20 +66,38 @@ export async function importRedditCreators(f:FormData){
  }
  await log('reddit_import',`Добавлено ${added}, уже были ${known}. Рассылка не запускалась.`);revalidatePath('/creators');go('/creators?source=reddit',`Добавлено ${added}, уже были ${known}. Теперь выбери креаторов для проверки.`);
 }
-export async function sendRedditToCampaign(f:FormData){
- const who=await requireSession(),id=String(f.get('id')||''),campaign=String(f.get('campaign')||''),at=String(f.get('at')||''),token=String(f.get('token')||'');
- const {data:c}=await db.from('reddit_creator_directory').select('*').eq('id',id).single();if(!c||!validApproval(id,c.email,campaign,at,token))go('/creators?source=reddit','Подтверждение устарело. Выбери кампанию заново.');
- const {data:protectedContact}=await db.from('creators').select('do_not_contact,unsubscribed_at,bounced_at').ilike('email',c.email).limit(1).maybeSingle();
- if(protectedContact&&(protectedContact.do_not_contact||protectedContact.unsubscribed_at||protectedContact.bounced_at))go('/creators?source=reddit','Контакт защищён от рассылки: исторический импорт, отписка или недоставка. Ограничение сохранено.');
- if(c.outreach_state?.status&&c.outreach_state.status!=='permission_required')go('/creators?source=reddit','По этому контакту уже был запрос добавления. Сначала проверь результат в Instantly.');
+async function addApprovedCreator(id:string,campaign:string,at:string,token:string,who:string,fingerprint=''){
+ const {data:c}=await db.from('reddit_creator_directory').select('*').eq('id',id).single();if(!c||!validApproval(id,c.email,campaign,at,token,fingerprint)||!!fingerprint&&reviewFingerprint(c)!==fingerprint)return ('Подтверждение устарело. Выбери кампанию заново.');
+ const {data:protectedContacts}=await db.from('creators').select('do_not_contact,unsubscribed_at,bounced_at').ilike('email',c.email);
+ if(protectedContacts?.some((contact:any)=>contact.do_not_contact||contact.unsubscribed_at||contact.bounced_at))return ('Контакт защищён от рассылки: исторический импорт, отписка или недоставка. Ограничение сохранено.');
+ if(c.outreach_state?.status&&c.outreach_state.status!=='permission_required')return ('По этому контакту уже был запрос добавления. Сначала проверь результат в Instantly.');
  const env=environment(),inst=await loadRecord(env,'instantly');if(!inst?.key)throw Error('Instantly не подключён');
  let cursor='',complete=false;const matches:any[]=[];
  for(let i=0;i<5;i++){const page=await api(inst.key,'/leads/list',{contacts:[c.email],limit:100,...(cursor?{starting_after:cursor}:{})});if(!Array.isArray(page.items))throw Error('Неполная проверка дублей');matches.push(...page.items.filter((l:any)=>String(l.email).toLowerCase()===c.email));if(!page.next_starting_after){complete=true;break}if(page.next_starting_after===cursor)throw Error('Повтор страницы');cursor=page.next_starting_after}
- if(!complete||matches.length)go('/creators?source=reddit',matches.length?'Уже есть в Instantly. Повторно не добавлен.':'Проверка дублей не завершена. Ничего не добавлено.');
+ if(!complete||matches.length)return (matches.length?'Уже есть в Instantly. Повторно не добавлен.':'Проверка дублей не завершена. Ничего не добавлено.');
  const current=await api(inst.key,'/campaigns/'+encodeURIComponent(campaign));if(current.id&&current.id!==campaign)throw Error('Неверная кампания');
  // Atomic claim: two clicks cannot produce two imports, including after an uncertain response.
- const {data:claimed}=await db.from('reddit_creator_directory').update({outreach_state:{status:'importing',campaign,at:new Date().toISOString()}}).eq('id',id).is('outreach_state',null).select('id');
- if(!claimed?.length)go('/creators?source=reddit','Добавление уже выполнялось. Автоповтор отключён.');
+ const {data:claimed}=await db.from('reddit_creator_directory').update({outreach_state:{status:'importing',campaign,at:new Date().toISOString()}}).eq('id',id).eq('updated_at',c.updated_at).is('outreach_state',null).select('id');
+ if(!claimed?.length)return ('Добавление уже выполнялось. Автоповтор отключён.');
  let msg;try{await api(inst.key,'/leads/add',{campaign_id:campaign,skip_if_in_workspace:true,skip_if_in_campaign:true,verify_leads_on_import:false,leads:[{email:c.email,first_name:c.payload.name||c.payload.reddit||'',custom_variables:{reddit_username:c.payload.reddit||''}}]});await db.from('reddit_creator_directory').update({outreach_state:{status:'accepted',campaign,at:new Date().toISOString()}}).eq('id',id);msg='Instantly принял добавление. Письма пойдут по настройкам выбранной кампании; это ещё не подтверждение доставки.'}catch{await db.from('reddit_creator_directory').update({outreach_state:{status:'uncertain',campaign,at:new Date().toISOString()}}).eq('id',id);msg='Результат добавления нужно проверить в Instantly. Автоповтор отключён.'}
- await log('reddit_campaign_request',msg,null,{email:c.email,campaign},who);revalidatePath('/creators');go('/creators?source=reddit',msg);
+ await log('reddit_campaign_request',msg,null,{email:c.email,campaign},who);return msg;
+}
+
+export async function sendRedditToCampaign(f:FormData){
+ const who=await requireSession();const msg=await addApprovedCreator(String(f.get('id')||''),String(f.get('campaign')||''),String(f.get('at')||''),String(f.get('token')||''),who);
+ revalidatePath('/creators');go('/creators?source=reddit',msg);
+}
+export async function sendRedditBatch(f:FormData){
+ const who=await requireSession();const selected=[...new Set(f.getAll('selected').map(String))];
+ if(!selected.length||selected.length>20)throw Error('Выбери от 1 до 20 подтверждённых креаторов');
+ if(f.get('confirm')!=='yes')throw Error('Нужно подтвердить запуск писем активной кампании');
+ const results:{id:string,message:string}[]=[];
+ for(const id of selected){
+  if(!/^[a-f0-9]{16}$/.test(id))throw Error('Неверный ID');
+  if(!/^[a-f0-9]{64}$/.test(String(f.get('fingerprint:'+id)||'')))throw Error('Нужна свежая проверка карточки');
+  try{const message=await addApprovedCreator(id,String(f.get('campaign:'+id)||''),String(f.get('at')||''),String(f.get('token:'+id)||''),who,String(f.get('fingerprint:'+id)||''));results.push({id,message})}
+  catch{results.push({id,message:'Ошибка до подтверждения результата. Проверь статус; автоматического повтора нет.'})}
+ }
+ await saveRecord(environment(),'_reddit_batch_result',{at:new Date().toISOString(),results});
+ revalidatePath('/creators');go('/creators/reddit-approval','Пачка обработана. Результаты ниже. Повторные добавления отключены.');
 }

@@ -1,10 +1,11 @@
 import CampaignBadge from '@/components/CampaignBadge';
+import CreatorQueueRefresh from '@/components/CreatorQueueRefresh';
 import {creatorCampaigns} from '@/lib/hub-data';
 import {workspaceMode} from '@/lib/workspace-mode';
 import {mailSource} from '@/lib/mail-source';
 import FoundCreators from '@/components/FoundCreators';
 import {redditDirectory,mailSnapshot,contactThreads,RATINGS,ratingClass,safeLinks,sourceSheet} from '@/lib/hub-data';
-import {saveCreatorChoice,requestCreatorReviews} from '@/lib/hub-actions';
+import {saveCreatorChoice,requestCreatorReviews,checkRedditForm} from '@/lib/hub-actions';
 import {Filters,Submit,PickAll} from '@/components/ui';
 export default async function Creators({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
  const sp=await searchParams,source=(sp.source?mailSource(sp.source):await workspaceMode())==='apify'?'found':'reddit';
@@ -14,8 +15,10 @@ export default async function Creators({searchParams}:{searchParams:Promise<Reco
  const query=(sp.q||'').toLowerCase();const rows=all.filter(c=>(!sp.rating||c.rating===sp.rating)&&(!query||[c.email,c.payload.name,c.payload.reddit].join(' ').toLowerCase().includes(query)));
  const page=Math.max(0,Number(sp.page)||0),shown=rows.slice(page*50,page*50+50);
  return <div className="hub-stack">
+  <CreatorQueueRefresh active={all.some((c:any)=>c.review_pending||c.payload.reviewStatus==='pending_review')}/>
   <header className="hub-heading"><div><h1>Креаторы</h1><p className="sub">Проверяй качество, сохраняй причину выбора и переходи к переписке.</p></div><a className="btn" href="/guide">Как работать</a></header>
   {sp.msg&&<div className="okbox" role="status">{sp.msg}</div>}
+  <section className="panel hub-section hub-stack"><h2>Reddit / форма → проверка → рассылка</h2><p>1. Обнови заявки из Google-формы. 2. Агент проверит образцы со звуком: до 20 за час, без твоего ПК. 3. Проверь выбор и отдельно подтверди добавление в кампанию.</p><div className="row"><form action={checkRedditForm}><Submit className="btn-p">Проверить новые заявки из формы</Submit></form><a className="btn" href="/creators/reddit-approval">Проверить и добавить в Instantly →</a></div><p className="muted">В очереди: {all.filter((c:any)=>c.review_pending||c.payload.reviewStatus==='pending_review').length}. Цвет и цена учитываются отдельно. Недоступное видео не получает выдуманную оценку. Исходную таблицу не меняем.</p></section>
   <div className="hub-toolbar"><span>{all.length} креаторов · исходные цвета и новые заявки из формы</span><a className="l" href={sourceSheet} target="_blank" rel="noreferrer">Исходная таблица ↗</a><a className="btn" href="/import?source=reddit">Добавить из Reddit</a></div>
   <Filters><input type="hidden" name="source" value="reddit"/><input className="in" name="q" defaultValue={sp.q} placeholder="Имя, Reddit или email" aria-label="Поиск креаторов"/><select className="in" name="rating" defaultValue={sp.rating||''} aria-label="Твой выбор"><option value="">Все цвета</option>{Object.entries(RATINGS).filter(([k])=>k!=='unverified').map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Filters>
   <form action={requestCreatorReviews} id="batch-review" className="hub-toolbar"><Submit className="btn-p">Проверить выбранных с видео и звуком</Submit><span className="muted">До 20 за час · результат здесь и в Telegram</span></form>
@@ -23,7 +26,7 @@ export default async function Creators({searchParams}:{searchParams:Promise<Reco
    <td><input type="checkbox" name="id" value={c.id} form="batch-review" disabled={c.legacy} aria-label={'Проверить '+c.email}/></td>
    <td><b>{p.name||p.reddit||c.email}</b><div className="mail-address">{c.email}</div><CampaignBadge ids={[...(membership.get(c.email?.toLowerCase())||[])]}/><div className="muted">{p.country||'Страна не указана'} · {c.legacy?'Старая таблица':'Reddit / форма'}</div><div className="row">{safeLinks(p.profile+' '+p.videos).map((url,i)=><a className="l" key={url} href={url} target="_blank" rel="noreferrer">{i?'Образец':'Портфолио'} ↗</a>)}</div></td>
    <td><span className={'tag '+ratingClass(c.rating)}>{RATINGS[c.rating]||'Не проверен'}</span><p className="hub-small">{c.reason||'Причина пока не записана'}</p>{!c.legacy&&<details><summary className="l">Изменить и объяснить</summary><form action={saveCreatorChoice} className="hub-stack hub-review-form"><input type="hidden" name="id" value={c.id}/><select className="in" name="rating" defaultValue={c.rating} aria-label="Твой цвет">{['great','maybe','no','unreviewed'].map(k=><option value={k} key={k}>{RATINGS[k]}</option>)}</select><textarea className="in" name="reason" required maxLength={1500} defaultValue={c.reason} placeholder="Почему: речь, качество, цена…" aria-label="Причина выбора"/><Submit>Сохранить и обучить агента</Submit></form></details>}</td>
-   <td>{c.review_pending?<span className="tag">В очереди на проверку</span>:a?<><span className={'tag '+ratingClass(a.decision)}>{RATINGS[a.decision]||a.decision}</span><p className="hub-small">{a.reason}</p><span className="muted">Видео {a.videoReviewed?'✓':'не проверено'} · звук {a.audioReviewed?'✓':'не проверен'}</span></>:<span className="muted">Ещё не проверял</span>}</td>
+   <td>{(c.review_pending||p.reviewStatus==='pending_review')?<span className="tag">В очереди на проверку</span>:a?<><span className={'tag '+ratingClass(a.decision)}>{RATINGS[a.decision]||a.decision}</span><p className="hub-small">{a.reason}</p><span className="muted">Видео {a.videoReviewed?'✓':'не проверено'} · звук {a.audioReviewed?'✓':'не проверен'}</span></>:<span className="muted">Ещё не проверял</span>}</td>
    <td>{p.price?String(p.price).startsWith('$')?p.price:'$'+p.price:'—'}<p className="muted hub-small">{a?.price||'Не согласована'}</p></td>
    <td><span className={'tag '+(t?.state==='waiting_on_us'?'warn':'')}>{t?t.state==='waiting_on_us'?'Ждёт нас':t.state==='waiting_on_them'?'Ждём ответ':'Есть переписка':'Нет писем в снимке'}</span><p><a className="l" href={'/inbox?source=reddit&email='+encodeURIComponent(c.email)}>Открыть почту →</a></p>{!c.legacy&&<a className="l" href={"/outreach/"+c.id}>Добавить в кампанию →</a>}{c.outreach_state&&<p className="muted">{c.outreach_state.status}</p>}</td>
   </tr>})}</tbody></table>{!shown.length&&<div className="hub-empty">По этим фильтрам никого нет. Сбрось поиск или добавь креаторов из Reddit.</div>}</div>
