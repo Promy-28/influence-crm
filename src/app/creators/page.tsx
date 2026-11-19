@@ -7,6 +7,7 @@ import FoundCreators from '@/components/FoundCreators';
 import {redditDirectory,mailSnapshot,contactThreads,RATINGS,ratingClass,safeLinks,sourceSheet} from '@/lib/hub-data';
 import {saveCreatorChoice,requestCreatorReviews,checkRedditForm} from '@/lib/hub-actions';
 import {Filters,Submit,PickAll} from '@/components/ui';
+export const maxDuration=60;
 export default async function Creators({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
  const sp=await searchParams,source=(sp.source?mailSource(sp.source):await workspaceMode())==='apify'?'found':'reddit';
 
