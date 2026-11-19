@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { decide } from "@/lib/actions";
+import PostPreview from './PostPreview';
 
 export type Card = {
   id: string; platform: string; handle: string; name: string | null; bio: string | null; email: string | null; email_source: string | null;
   profile_url: string | null; avatar_url: string | null; followers: number | null; likes: number | null; posts_7d: number | null; avg_views: number | null;
   last_post_at: string | null; region: string | null; ai_score: number | null; ai_verdict: string | null; ai_reasons: string | null; ai_line: string | null;
-  ai_us: boolean | null; ai_english: boolean | null; rule_flags: string[]; recent_posts: { url: string; cover?: string | null; caption?: string | null; views?: number | null; at?: string | null }[]; query: string | null; bio_link: string | null;
+  ai_us: boolean | null; ai_english: boolean | null; rule_flags: string[]; recent_posts: { url: string; cover?: string | null; media_url?:string|null; caption?: string | null; views?: number | null; at?: string | null }[]; query: string | null; bio_link: string | null;
 };
 export const REASONS = ["Инфлюенсер, не UGC", "Не США", "Не английский", "Нет лица в кадре", "Слабое качество видео", "Не креатор / бренд", "Другое"];
 const VERDICT: Record<string, string> = { ugc: "UGC-креатор", influencer: "Инфлюенсер", not_creator: "Не креатор", unclear: "Неясно" };
@@ -41,6 +42,7 @@ export function ReviewDeck({ initial, flagText }: { initial: Card[]; flagText?: 
 
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
+      if(document.querySelector('dialog[open]'))return;
       if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA" || e.metaKey || e.ctrlKey) return;
       const k = e.key.toLowerCase();
       if (rejecting) { const num = Number(k); if (num >= 1 && num <= REASONS.length) act("rejected", REASONS[num - 1]); if (k === "escape") setRejecting(false); return; }
@@ -76,7 +78,8 @@ export function ReviewDeck({ initial, flagText }: { initial: Card[]; flagText?: 
         <div className="fact"><b>{c.ai_us === null ? (c.region ?? "?") : c.ai_us ? "США" : "не США"}</b><span>страна{c.region ? ` (${c.region})` : ""}</span></div>
       </div>
       {(c.ai_reasons || c.rule_flags.some((f) => ft[f])) && <div className="ai"><b>AI:</b> {c.ai_reasons ?? "ещё не оценил"}{c.rule_flags.filter((f) => ft[f]).map((f) => <span key={f} className="tag warn" style={{ marginLeft: 6 }}>{ft[f]}</span>)}{c.ai_line && <div className="muted" style={{ marginTop: 6, fontSize: 12.5 }}>Первая строка письма: «{c.ai_line}»</div>}</div>}
-      <div className="posts">{c.recent_posts.slice(0, 6).map((p) => <a key={p.url} href={p.url} target="_blank" rel="noreferrer" className="post"><div className="cv" style={p.cover ? { backgroundImage: `url(${p.cover})` } : undefined}>{p.cover ? "" : "▶"}</div><p>{p.caption || "без подписи"}</p><span>{n(p.views)} просм. · {ago(p.at)}</span></a>)}</div>
+      <p className="review-media-note">Оценка AI выше — по био, подписям и данным профиля. Она не подтверждает просмотр видео и проверку речи. Ролики можно открыть ниже без платного пересбора.</p>
+      <div className="posts">{c.recent_posts.slice(0, 6).map((p) => <PostPreview key={p.url} post={p} platform={c.platform} caption={p.caption||'без подписи'} meta={`${n(p.views)} просм. · ${ago(p.at)}`}/>)}</div>
       {rejecting ? <div className="flex flex-col gap-2"><b>Почему не подходит? Нажми цифру</b><div className="reasons">{REASONS.map((r, k) => <button key={r} className="btn" onClick={() => act("rejected", r)}><span className="kbd">{k + 1}</span> {r}</button>)}<button className="btn" onClick={() => setRejecting(false)}>Отмена <span className="kbd">Esc</span></button></div></div>
         : <div className="row" style={{ gap: 10 }}><button className="btn-p big-btn" onClick={() => act("approved")}>Писать <span className="kbd" style={{ marginLeft: 6 }}>A</span></button><button className="btn-bad big-btn" onClick={() => setRejecting(true)}>Не подходит <span className="kbd" style={{ marginLeft: 6 }}>R</span></button><button className="btn" onClick={skip}>Пропустить <span className="kbd">S</span></button><button className="btn" onClick={undo} disabled={!history.length}>Отменить <span className="kbd">Z</span></button><a className="btn" href={c.profile_url ?? "#"} target="_blank" rel="noreferrer">Открыть профиль <span className="kbd">O</span></a></div>}
     </section>
