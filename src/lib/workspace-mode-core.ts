@@ -3,7 +3,7 @@ export const MODE_COOKIE='promy_workspace_mode';
 export function normalizedMode(value:unknown):MailSource|null{return value==='apify'||value==='found'?'apify':value==='reddit'?'reddit':null}
 const apifyPages=['/review','/sourcing','/tests','/analytics'];
 export function resolveWorkspaceMode(path:string,explicit:unknown,stored:unknown,legacyApify=false):MailSource{
- if(path.startsWith('/outreach/'))return 'reddit';
+ if(path.startsWith('/outreach/')||path==='/creators/reddit-approval')return 'reddit';
  if(apifyPages.includes(path)||path.startsWith('/creators/'))return 'apify';
  return normalizedMode(explicit)||(path==='/inbox'&&legacyApify?'apify':null)||normalizedMode(stored)||'reddit';
 }

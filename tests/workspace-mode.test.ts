@@ -9,6 +9,7 @@ test('saved source survives core navigation and explicit links select their sour
  assert.equal(resolveWorkspaceMode('/inbox',null,'reddit',true),'apify');
  assert.equal(resolveWorkspaceMode('/review','reddit','reddit'),'apify');
  assert.equal(resolveWorkspaceMode('/outreach/contact','apify','apify'),'reddit');
+ assert.equal(resolveWorkspaceMode('/creators/reddit-approval','apify','apify'),'reddit');
  assert.equal(normalizedMode('anything'),null);
 });
 test('mode change discards contact context and returns only safe local destinations',()=>{

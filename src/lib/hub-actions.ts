@@ -9,7 +9,7 @@ import {processOwnerUpdate} from './promy-bot/owner-update';
 import {parseCsv} from './text';
 import {createHash} from 'node:crypto';
 import {validApproval} from './hub-outreach';
-import {reviewFingerprint} from './reddit-intake';
+import {reviewFingerprint,validFormEmail} from './reddit-intake';
 import {syncRedditForm} from './reddit-form-sync';
 import {validDraftApproval,readyDraft} from './draft-approval';
 import {renderReplyMacro} from './promy-bot/reply-macro';
@@ -68,14 +68,16 @@ export async function importRedditCreators(f:FormData){
 }
 async function addApprovedCreator(id:string,campaign:string,at:string,token:string,who:string,fingerprint=''){
  const {data:c}=await db.from('reddit_creator_directory').select('*').eq('id',id).single();if(!c||!validApproval(id,c.email,campaign,at,token,fingerprint)||!!fingerprint&&reviewFingerprint(c)!==fingerprint)return ('Подтверждение устарело. Выбери кампанию заново.');
- const {data:protectedContacts}=await db.from('creators').select('do_not_contact,unsubscribed_at,bounced_at').ilike('email',c.email);
+ if(!validFormEmail(c.email))return 'Исправь email перед добавлением. Адрес не исправляется автоматически.';
+ const {data:protectedContacts,error:protectionError}=await db.from('creators').select('do_not_contact,unsubscribed_at,bounced_at').ilike('email',c.email);
+ if(protectionError)throw Error('Не удалось проверить запреты контакта');
  if(protectedContacts?.some((contact:any)=>contact.do_not_contact||contact.unsubscribed_at||contact.bounced_at))return ('Контакт защищён от рассылки: исторический импорт, отписка или недоставка. Ограничение сохранено.');
  if(c.outreach_state?.status&&c.outreach_state.status!=='permission_required')return ('По этому контакту уже был запрос добавления. Сначала проверь результат в Instantly.');
  const env=environment(),inst=await loadRecord(env,'instantly');if(!inst?.key)throw Error('Instantly не подключён');
  let cursor='',complete=false;const matches:any[]=[];
  for(let i=0;i<5;i++){const page=await api(inst.key,'/leads/list',{contacts:[c.email],limit:100,...(cursor?{starting_after:cursor}:{})});if(!Array.isArray(page.items))throw Error('Неполная проверка дублей');matches.push(...page.items.filter((l:any)=>String(l.email).toLowerCase()===c.email));if(!page.next_starting_after){complete=true;break}if(page.next_starting_after===cursor)throw Error('Повтор страницы');cursor=page.next_starting_after}
  if(!complete||matches.length)return (matches.length?'Уже есть в Instantly. Повторно не добавлен.':'Проверка дублей не завершена. Ничего не добавлено.');
- const current=await api(inst.key,'/campaigns/'+encodeURIComponent(campaign));if(current.id&&current.id!==campaign)throw Error('Неверная кампания');
+ const current=await api(inst.key,'/campaigns/'+encodeURIComponent(campaign));if(current.id!==campaign)throw Error('Неверная кампания');
  // Atomic claim: two clicks cannot produce two imports, including after an uncertain response.
  const {data:claimed}=await db.from('reddit_creator_directory').update({outreach_state:{status:'importing',campaign,at:new Date().toISOString()}}).eq('id',id).eq('updated_at',c.updated_at).is('outreach_state',null).select('id');
  if(!claimed?.length)return ('Добавление уже выполнялось. Автоповтор отключён.');
@@ -99,5 +101,5 @@ export async function sendRedditBatch(f:FormData){
   catch{results.push({id,message:'Ошибка до подтверждения результата. Проверь статус; автоматического повтора нет.'})}
  }
  await saveRecord(environment(),'_reddit_batch_result',{at:new Date().toISOString(),results});
- revalidatePath('/creators');go('/creators/reddit-approval','Пачка обработана. Результаты ниже. Повторные добавления отключены.');
+ revalidatePath('/creators');go('/creators/reddit-approval?source=reddit','Пачка обработана. Результаты ниже. Повторные добавления отключены.');
 }
