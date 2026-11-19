@@ -1,5 +1,7 @@
 import CampaignBadge from '@/components/CampaignBadge';
 import CreatorQueueRefresh from '@/components/CreatorQueueRefresh';
+import CreatorProgress from '@/components/CreatorProgress';
+import {creatorReviewState} from '@/lib/creator-progress';
 import {creatorCampaigns} from '@/lib/hub-data';
 import {workspaceMode} from '@/lib/workspace-mode';
 import {mailSource} from '@/lib/mail-source';
@@ -13,15 +15,16 @@ export default async function Creators({searchParams}:{searchParams:Promise<Reco
 
  if(source==='found')return <div className="hub-stack"><div className="note">Этих креаторов нашли через поиск TikTok / Instagram. Источник и запрос указаны в таблице. <a className="l" href="/review">Проверить найденных →</a></div><FoundCreators searchParams={searchParams}/></div>;
  const [all,mail,membership]=await Promise.all([redditDirectory(),mailSnapshot(),creatorCampaigns()]);const contacts=contactThreads(mail.threads);
- const query=(sp.q||'').toLowerCase();const rows=all.filter(c=>(!sp.rating||c.rating===sp.rating)&&(!query||[c.email,c.payload.name,c.payload.reddit].join(' ').toLowerCase().includes(query)));
+ const query=(sp.q||'').toLowerCase();const rows=all.filter(c=>{const state=creatorReviewState(c),checked=['great','maybe','no'].includes(state);return (!sp.review||sp.review==='all'||(sp.review==='checked'?checked:sp.review==='remaining'?!checked:state===sp.review))&&(!sp.rating||c.rating===sp.rating)&&(!query||[c.email,c.payload.name,c.payload.reddit].join(' ').toLowerCase().includes(query))});
  const page=Math.max(0,Number(sp.page)||0),shown=rows.slice(page*50,page*50+50);
  return <div className="hub-stack">
   <CreatorQueueRefresh active={all.some((c:any)=>c.review_pending||c.payload.reviewStatus==='pending_review')}/>
   <header className="hub-heading"><div><h1>Креаторы</h1><p className="sub">Проверяй качество, сохраняй причину выбора и переходи к переписке.</p></div><a className="btn" href="/guide">Как работать</a></header>
   {sp.msg&&<div className="okbox" role="status">{sp.msg}</div>}
+  <CreatorProgress rows={all} active={sp.review||'all'}/>
   <section className="panel hub-section hub-stack"><h2>Reddit / форма → проверка → рассылка</h2><p>1. Обнови заявки из Google-формы. 2. Агент проверит образцы со звуком: до 20 за час, без твоего ПК. 3. Проверь выбор и отдельно подтверди добавление в кампанию.</p><div className="row"><form action={checkRedditForm}><Submit className="btn-p">Проверить новые заявки из формы</Submit></form><a className="btn" href="/creators/reddit-approval?source=reddit">Проверить и добавить в Instantly →</a></div><p className="muted">В очереди: {all.filter((c:any)=>c.review_pending||c.payload.reviewStatus==='pending_review').length}. Цвет и цена учитываются отдельно. Недоступное видео не получает выдуманную оценку. Исходную таблицу не меняем.</p></section>
   <div className="hub-toolbar"><span>{all.length} креаторов · исходные цвета и новые заявки из формы</span><a className="l" href={sourceSheet} target="_blank" rel="noreferrer">Исходная таблица ↗</a><a className="btn" href="/import?source=reddit">Добавить из Reddit</a></div>
-  <Filters><input type="hidden" name="source" value="reddit"/><input className="in" name="q" defaultValue={sp.q} placeholder="Имя, Reddit или email" aria-label="Поиск креаторов"/><select className="in" name="rating" defaultValue={sp.rating||''} aria-label="Твой выбор"><option value="">Все цвета</option>{Object.entries(RATINGS).filter(([k])=>k!=='unverified').map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Filters>
+  <Filters><input type="hidden" name="source" value="reddit"/>{sp.review&&<input type="hidden" name="review" value={sp.review}/>}<input className="in" name="q" defaultValue={sp.q} placeholder="Имя, Reddit или email" aria-label="Поиск креаторов"/><select className="in" name="rating" defaultValue={sp.rating||''} aria-label="Твой выбор"><option value="">Все цвета</option>{Object.entries(RATINGS).filter(([k])=>k!=='unverified').map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></Filters>
   <form action={requestCreatorReviews} id="batch-review" className="hub-toolbar"><Submit className="btn-p">Проверить выбранных с видео и звуком</Submit><span className="muted">До 20 за час · результат здесь и в Telegram</span></form>
   <div className="panel tw"><table className="t hub-creators"><thead><tr><th><PickAll name="id"/></th><th>Креатор / email</th><th>Твой выбор</th><th>Проверка агента</th><th>Цена из формы</th><th>Почта</th></tr></thead><tbody>{shown.map(c=>{const p=c.payload,a=p.assessment,t=contacts.get(c.email.toLowerCase());return <tr key={c.id}>
    <td><input type="checkbox" name="id" value={c.id} form="batch-review" disabled={c.legacy} aria-label={'Проверить '+c.email}/></td>

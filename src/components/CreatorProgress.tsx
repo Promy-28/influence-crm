@@ -1,0 +1,13 @@
+import './creator-progress.css';
+import {creatorProgress} from '@/lib/creator-progress';
+export default function CreatorProgress({rows,active}:{rows:any[],active?:string}){
+ const s=creatorProgress(rows);
+ const cards=[['all','Всего креаторов',s.total,'Вся база Reddit / формы','neutral'],['checked','Проверены агентом',s.checked,'Видео и звук проверены','purple'],['great','Зелёные',s.great,'Подходят по оценке агента','green'],['maybe','Жёлтые',s.maybe,'Есть вопросы, например по цене','yellow'],['no','Красные',s.no,'Не подходят по оценке агента','red'],['remaining','Осталось проверить',s.remaining,'Очередь + недоступные + без проверки','neutral']] as const;
+ return <section className="panel creator-progress" aria-label="Прогресс проверки креаторов"><div className="hub-heading"><div><h2>Как идёт проверка</h2><p className="muted">Вся база, а не только текущая страница. Нажми на число, чтобы открыть список.</p></div><b>{s.percent}% проверено</b></div>
+ <div className="creator-progress-cards">{cards.map(([key,title,count,description,color])=><a className={'creator-stat '+color+(active===key?' selected':'')} href={'/creators?source=reddit'+(key==='all'?'':'&review='+key)} key={key} aria-current={active===key?'page':undefined}><span>{title}</span><strong>{count}</strong><small>{description}</small></a>)}</div>
+ <div className="creator-progress-track" role="progressbar" aria-label="Завершённая проверка видео и звука" aria-valuenow={s.checked} aria-valuemin={0} aria-valuemax={s.total||1}>{(['great','maybe','no'] as const).map(k=><span className={k} key={k} style={{width:(s.total?s[k]/s.total*100:0)+'%'}}/>)}</div>
+ <p className="creator-progress-breakdown">Из оставшихся {s.remaining}: <a href="/creators?source=reddit&review=queued">в очереди — <b>{s.queued}</b></a> · <a href="/creators?source=reddit&review=unverified">проверка не завершена — <b>{s.unverified}</b></a> · <a href="/creators?source=reddit&review=untouched">ещё не запускали — <b>{s.untouched}</b></a>.</p>
+ <p className="muted">«Проверка не завершена»: не удалось подтвердить видео или речь. Эти креаторы не считаются проверенными и не получают цвет автоматически. Обработка — до 20 за час.</p>
+ <details className="creator-owner-counts"><summary>Твои сохранённые цвета / исходная таблица — отдельно от проверки агента</summary><p>🟢 Зелёные: {s.owner.great} · 🟡 Жёлтые: {s.owner.maybe} · 🔴 Красные: {s.owner.no} · Без цвета: {s.owner.unreviewed}</p><p className="muted">Твой цвет сохраняется при повторной проверке. Он сам по себе не подтверждает, что агент посмотрел и прослушал видео.</p></details>
+ </section>;
+}
