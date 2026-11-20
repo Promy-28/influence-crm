@@ -1,4 +1,6 @@
 import {queueWritingRefresh} from '@/lib/writing-refresh';
+import {createAgentRuntime} from '@/lib/promy-bot/agent-runtime';
+import {api,campaigns} from '@/lib/promy-bot/store';
 import {mergeDirectoryPayload} from '@/lib/reddit-intake';
 import {syncRedditForm} from '@/lib/reddit-form-sync';
 import {queueAutomaticMail} from '@/lib/auto-mail';
@@ -20,6 +22,10 @@ export async function POST(req:Request){
   if(b.op==='syncBranding')return NextResponse.json(await syncBranding());
   if(b.op==='syncRedditForm')return NextResponse.json(await syncRedditForm());
   if(b.op==='apifyThread'&&typeof b.emailId==='string')return NextResponse.json(await apifyConversationByEmailId(env,b.emailId));
+  if(b.op==='emailThread'&&typeof b.emailId==='string'){
+   const r=createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campaigns});
+   try{return NextResponse.json(await r.getThread(b.emailId))}catch{return NextResponse.json(await apifyConversationByEmailId(env,b.emailId))}
+  }
   if(b.op==='completeJob'&&b.args&&typeof b.args.id==='string')return NextResponse.json(await completeCloudJob(env,b.args));
   if(b.op==='directorySync'){
    if(!Array.isArray(b.records)||b.records.length>1000)throw Error('Invalid directory');

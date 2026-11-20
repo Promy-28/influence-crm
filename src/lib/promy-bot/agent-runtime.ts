@@ -2,6 +2,7 @@
 // @ts-nocheck
 // Shared mail safety core, mirrored from Creator Hub.
 import {WRITING_STYLE,cleanOwnerSummary} from '../writing-style.ts';
+import {REPLY_COVERAGE_POLICY,replyCoverageIssue,questionCoverage} from '../reply-coverage.ts';
 import {CREATOR_POLICY,CREATOR_POLICY_VERSION,creatorPolicyIssue} from '../creator-policy.ts';
 import {analyzeConversations,reminderCandidates,unquotedText} from './mail-analysis.ts';
 import {shownDraftFingerprint} from './dialogue-actions.ts';
@@ -81,7 +82,8 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
    const text=unquotedText(e),same=String(e.to_address_email_list||'').toLowerCase()===current.from_address_email.toLowerCase();
    return {emailId:e.id,threadId:e.thread_id,recipient:e.to_address_email_list,text:text.slice(0,1500),score:(same?20:0)+wanted.filter(k=>text.toLowerCase().includes(k)).length};
   }).filter(e=>e.score>0).sort((a,b)=>b.score-a.score).slice(0,3).map(({score,...e})=>e);
-  return {complete,canonical:compact(current),thread,briefContext,writingStyle:WRITING_STYLE,creatorPolicy:CREATOR_POLICY,campaign:campaignInfo(current.campaign_id),persona:OWNER_PERSONA,referenceReplies,referenceWarning:'Historical examples retrieved by keyword overlap. Their budgets, rights and scope are specific to those creators, not authority for a new promise.'};
+  const creatorFacts=await load('creatorfacts:'+current.from_address_email.toLowerCase());
+  return {complete,canonical:compact(current),thread,briefContext,creatorFacts,questionChecklist:questionCoverage(unquotedText(current),'').missingLabels,replyCoveragePolicy:REPLY_COVERAGE_POLICY,writingStyle:WRITING_STYLE,creatorPolicy:CREATOR_POLICY,campaign:campaignInfo(current.campaign_id),persona:OWNER_PERSONA,referenceReplies,referenceWarning:'Historical examples retrieved by keyword overlap. Their budgets, rights and scope are specific to those creators, not authority for a new promise.'};
  }
  async function enqueueJob({id,text,emailId=null,source='telegram',replyToMessageId=null,mailSource='reddit',creatorId=null,kind='reply',followupAnchor=null,automaticPolicy=null,hubContext=null}){
   if(typeof id!=='string'||!id||id.length>200||typeof text!=='string'||!text.trim()||text.length>12000)throw Error('Invalid job');
@@ -143,7 +145,7 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
    await validateIncoming(email);
    if(!context.complete||context.thread?.state!=='waiting_on_us'||context.thread.latestMessageId!==email.id)throw Error('Thread incomplete, stale or suppressed');
    const threadState=await load('threadstate:'+email.thread_id);if(threadState?.closed||threadState?.status==='closed'||Date.parse(threadState?.snoozedUntil||'')>Date.now())throw Error('Thread closed or snoozed');
-   const briefIssue=creatorPolicyIssue(draftBody)||briefDraftIssue(draftBody,context.briefContext);
+   const briefIssue=creatorPolicyIssue(draftBody)||briefDraftIssue(draftBody,context.briefContext)||replyCoverageIssue(unquotedText(email),draftBody);
    if(briefIssue){draftBody='';requiresClarification=true;answer=briefIssue}else{
    const draftId=crypto.randomUUID().slice(0,8);draft={id:draftId,status:'draft',createdAt:iso(),emailId:email.id,campaign:email.campaign_id,threadId:email.thread_id,eaccount:email.eaccount,recipient:email.from_address_email,subject:/^re:/i.test(email.subject||'')?email.subject:'Re: '+(email.subject||''),body:draftBody.trim()};
    Object.assign(draft,await composeReplyMacro(provider,{body:draft.body,recipient:draft.recipient,eaccount:draft.eaccount,campaignId:draft.campaign,incomingText:unquotedText(email)}));
