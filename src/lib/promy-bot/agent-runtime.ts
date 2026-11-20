@@ -137,7 +137,7 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
   }
   if(typeof answer!=='string'||answer.length>3500||typeof draftBody!=='string'||draftBody.length>2800||typeof reason!=='string'||reason.length>2000)throw Error('Invalid agent result');
   if(!answer.trim()&&!draftBody.trim())throw Error('Empty agent result');
-  if(job.source==='hub_batch'&&job.emailId&&!job.hubContext){const c=await getThread(job.emailId,{includeReferences:false});job.hubContext={recipient:c.canonical.from_address_email,eaccount:c.canonical.eaccount,subject:c.canonical.subject,threadId:c.canonical.thread_id,incomingText:unquotedText(c.canonical),incomingAt:c.canonical.timestamp_email}}
+  if(job.source==='hub_batch'&&job.emailId&&(!job.hubContext?.recipient||!job.hubContext?.incomingText)){const c=await getThread(job.emailId,{includeReferences:false});job.hubContext={...job.hubContext,recipient:c.canonical.from_address_email,eaccount:c.canonical.eaccount,subject:c.canonical.subject,threadId:c.canonical.thread_id,incomingText:unquotedText(c.canonical),incomingAt:c.canonical.timestamp_email}}
   let draft=null;
   if(draftBody.trim()&&!requiresClarification){
    if(!job.emailId)throw Error('Job has no canonical email');
@@ -149,7 +149,7 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
    if(briefIssue){draftBody='';requiresClarification=true;answer=briefIssue}else{
    const draftId=crypto.randomUUID().slice(0,8);draft={id:draftId,status:'draft',createdAt:iso(),emailId:email.id,campaign:email.campaign_id,threadId:email.thread_id,eaccount:email.eaccount,recipient:email.from_address_email,subject:/^re:/i.test(email.subject||'')?email.subject:'Re: '+(email.subject||''),body:draftBody.trim()};
    Object.assign(draft,await composeReplyMacro(provider,{body:draft.body,recipient:draft.recipient,eaccount:draft.eaccount,campaignId:draft.campaign,incomingText:unquotedText(email)}));
-   draft.policyVersion=CREATOR_POLICY_VERSION;draft.briefContext=context.briefContext;draft.contextVersion=2;draft.incomingText=unquotedText(email).slice(0,8000);draft.incomingAt=email.timestamp_email||email.timestamp_created;draft.jobId=job.id;draft.source=job.source;draft.mailSource=job.mailSource||'reddit';draft.creatorId=job.creatorId||null;answer=cleanOwnerSummary(answer);draft.summary=answer;
+   draft.previousVersion=job.hubContext?.previousDraft||null;draft.revisionOf=job.hubContext?.revisionOf||null;draft.policyVersion=CREATOR_POLICY_VERSION;draft.briefContext=context.briefContext;draft.contextVersion=2;draft.incomingText=unquotedText(email).slice(0,8000);draft.incomingAt=email.timestamp_email||email.timestamp_created;draft.jobId=job.id;draft.source=job.source;draft.mailSource=job.mailSource||'reddit';draft.creatorId=job.creatorId||null;answer=cleanOwnerSummary(answer);draft.summary=answer;
    await save('draft:'+draft.id,draft);job.draftId=draft.id;
    }
   }

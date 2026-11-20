@@ -1,5 +1,7 @@
 import {cleanOwnerSummary} from './writing-style';
 import {replyCoverageIssue,questionCoverage} from './reply-coverage';
+import {regenerationSnapshot} from './draft-regeneration';
+import {createHash} from 'node:crypto';
 import 'server-only';
 import {sendFollowupDraft} from './auto-mail';
 import {sourceMatches,type MailSource} from './mail-source';
@@ -65,12 +67,20 @@ export async function sendWorkspaceDraft(id:string,token:unknown,source:MailSour
  await processOwnerUpdate({update_id:Date.now(),message:{message_id:0,chat:{id:config.chatId,type:'private'},from:{id:config.userId,is_bot:false},text:'/send '+id}},config,inst,env,async()=>({}),selectedRuntime);
  const fresh=await loadRecord(env,'draft:'+id);if(source==='apify'&&fresh.status==='sent'){try{await db.from('creators').update({needs_reply:false,needs_human:false,human_reason:null}).eq('id',d.creatorId).eq('source','apify');await db.from('drafts').update({status:'superseded'}).eq('creator_id',d.creatorId).in('status',['new','scheduled']);await db.from('messages').upsert({creator_id:d.creatorId,direction:'out',subject:d.subject,body:d.body,eaccount:d.eaccount,inst_email_id:fresh.sentId,via:'hub_reply',sent_by:'Хаб',at:fresh.sentAt},{onConflict:'inst_email_id',ignoreDuplicates:true})}catch{return {status:'sent',sentAt:fresh.sentAt,syncWarning:true}}}return {status:fresh.status,sentAt:fresh.sentAt||null};
 }
-export async function requestWorkspaceRevision(emailId:string,instruction:string,source:MailSource='reddit',creatorId:string|null=null){
+export async function requestWorkspaceRevision(emailId:string,instruction:string,source:MailSource='reddit',creatorId:string|null=null,draftId?:string,approval?:unknown){
  if((source==='reddit'&&!/^[a-f0-9-]{36}$/.test(emailId))||!instruction.trim()||instruction.length>5000)throw Error('Укажи решение или инструкцию для ответа.');
+ if(draftId!==undefined&&(typeof draftId!=='string'||!/^[a-f0-9]{8}$/.test(draftId)))throw Error('Неверный черновик');
  if(source==='apify'){if(!creatorId)throw Error('Нужен креатор Apify');await apifyCreator(creatorId)}
- const env=environment(),r=runtime(env);const id='batch:'+crypto.randomUUID();
- await r.enqueueJob({id,source:'hub_batch',mailSource:source,creatorId,emailId:emailId||null,text:instruction});
- const q=await loadRecord(env,'agent_jobs'),previous=[...(q?.items||[])].reverse().find((j:any)=>j.id!==id&&j.emailId===emailId&&j.mailSource===source);if(previous?.kind==='followup'){Object.assign(q.items.find((j:any)=>j.id===id),{kind:'followup',followupAnchor:previous.followupAnchor});await saveRecord(env,'agent_jobs',q)}
- for(const old of await records(source))if(old.emailId===emailId&&old.status==='draft'){old.status='revision_requested';await saveRecord(env,'draft:'+old.id,old)}
+ const env=environment(),r=runtime(env);
+ const parentDraft=draftId?await loadRecord(env,'draft:'+draftId):null;
+ const previousStatus=parentDraft?.status;
+ const snapshot=draftId?regenerationSnapshot(parentDraft,{emailId,source,creatorId,approval},process.env.APP_PASSWORD!):null;
+ if(parentDraft&&!latestDrafts(await records(source)).some(d=>d.id===draftId))throw Error('Есть более новая версия ответа. Обнови страницу.');
+ const id=snapshot?'batch:revision:'+createHash('sha256').update(JSON.stringify([draftId,approval,instruction])).digest('hex').slice(0,24):'batch:'+crypto.randomUUID();
+ if(parentDraft){parentDraft.status='revision_requested';parentDraft.revisionJobId=id;await saveRecord(env,'draft:'+parentDraft.id,parentDraft)}
+ try{await r.enqueueJob({id,source:'hub_batch',mailSource:source,creatorId,emailId:emailId||null,text:instruction,...(snapshot?{hubContext:{previousDraft:snapshot,revisionOf:draftId}}:{})})}
+ catch(error){if(parentDraft){const fresh=await loadRecord(env,'draft:'+parentDraft.id);if(fresh?.status==='revision_requested'&&fresh.revisionJobId===id){fresh.status=previousStatus;delete fresh.revisionJobId;await saveRecord(env,'draft:'+fresh.id,fresh)}}throw error}
+ const q=await loadRecord(env,'agent_jobs'),previous=[...(q?.items||[])].reverse().find((j:any)=>j.id!==id&&j.emailId===emailId&&j.mailSource===source);const followup=parentDraft?.kind==='followup'?parentDraft:previous?.kind==='followup'?previous:null;if(followup){Object.assign(q.items.find((j:any)=>j.id===id),{kind:'followup',followupAnchor:followup.followupAnchor});await saveRecord(env,'agent_jobs',q)}
+ if(!parentDraft)for(const old of await records(source))if(old.emailId===emailId&&old.status==='draft'){const fresh=await loadRecord(env,'draft:'+old.id);if(fresh?.status==='draft'){fresh.status='revision_requested';await saveRecord(env,'draft:'+old.id,fresh)}}
  return {queued:1,jobId:id};
 }

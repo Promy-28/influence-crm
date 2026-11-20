@@ -1,43 +1,27 @@
-# Promy Creators CRM
+# Promy Creator Hub
 
-Internal tool for the influence team. It finds UGC creators on TikTok and Instagram via Apify, filters them, emails them through Instantly, drafts replies with AI and tracks who registered on promy.io.
-Same stack and design as `sales-crm`: Next.js (App Router) on Vercel, Supabase Postgres, all DB access server-side with the service role (RLS on, no policies).
+Internal influencer operations hub: source-separated creators, review, email history, AI draft proposals and owner-approved outreach. Next.js on Vercel, server-side Supabase access, Instantly and Telegram; existing private cloud Site runs background work.
 
-## How it works
+## Start here
 
-```
-Apify search (hashtags, phrases)  →  profile check (only bios with UGC + email/link)  →  hard rules
-   →  AI score, taught by your approvals/rejections  →  Review (keyboard)  →  Instantly (one campaign per A/B arm)
-   →  webhooks: sent / opened / replied / bounced  →  AI label + draft  →  manager fixes and sends (or autopilot)
-   →  promy.io webhook / CSV: registered → profile filled → videos
-```
+- [Architecture and project map](docs/ARCHITECTURE.md)
+- [Environment variables and credential storage](docs/CONFIGURATION.md)
+- [Development, release, rollback and incidents](docs/OPERATIONS.md)
+- [Project handoff and outstanding hardening work](docs/PROJECT_HANDOFF.md)
+- [Contributor/agent working agreement](AGENTS.md)
 
-A tick runs every 5 minutes (`/api/cron`, called by pg_cron) and does one bounded step of each stage:
-finish lost Apify runs, start a search when approved creators cover fewer than N days of sending, check queued profiles,
-read emails from bio links (Linktree, Beacons, Canva sites), score new creators, push today's share into Instantly,
-send due autopilot replies, and once an hour pull Instantly stats and pause mailboxes with too many bounces.
+## Local checks
 
-## Setup
+Use Node 24 and the committed lockfile. Run `npm ci`, `npm test`, and `npm run typecheck`. For local app development, copy `.env.example` to an ignored `.env.local` and supply separate development credentials, then run `npm run dev`. Never commit real values or use production integration writes to test a page.
 
-1. Supabase: new project, run `supabase/migrations/0001_init.sql`, then `0002_cron.sql` (needs pg_cron and pg_net; enable them in Database → Extensions if the migration complains).
-2. Vercel: import this repo, region lhr1, env vars:
-   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-   - `APP_PASSWORD` (login), `SESSION_SECRET` (any long random string; webhook tokens derive from it, so changing it means pressing "Подключить всё" again)
-3. Open the app → Settings → enter the Apify, OpenAI and Instantly keys → press **«Подключить всё»**.
-   This writes the cron URL into settings, finds the trypromy.co mailboxes, sets their daily limit, registers the Instantly webhook and reads the old campaigns.
-4. Settings → Отправка: check the mailboxes and set **Старт отправки**. Nothing is sent before that date.
-5. Import → upload the old Reddit/form sheets so those creators are never emailed again.
-6. Send Dmytro the Promy webhook spec from the Import page (signup, profile filled, videos; matched by `?ref=` code, then email).
+## Product rules
 
-Diagnostics: `/api/health`.
+Every Creator Hub email reply requires explicit owner approval of its exact version. Regeneration takes an instruction and previous draft, saves a new UNSENT version and preserves history; Reply name/signature/banner remain server-controlled. Main-topic question coverage is checked, but it is not a guarantee of semantic accuracy. Missing business terms require a specific owner decision.
 
-## Data rules
-- One creator = one row; an email never appears twice (unique index on `lower(email)`), and creators from the old sheets are `existing` + `do_not_contact`.
-- Leads go to Instantly with `skip_if_in_workspace`, so anyone already in Instantly is skipped and marked "не писать".
-- Each A/B arm is its own Instantly campaign with the same mailboxes, so every creator's variant is exact. New leads are split by Thompson sampling with a floor share per arm; until 10 signups exist, replies stand in for registrations.
-- `events` has one row per creator + type + step; it feeds the daily charts. Funnel rates use creator columns, by the date of the first email.
-- AI drafts never send without a person unless autopilot is on for that label and confidence; autopilot waits N minutes and cancels itself if a new message arrives.
+Form quotes are not agreed prices. Profile-text scores are not video/audio reviews. Cloud jobs can be deferred by access or free-provider limits; unavailable media must remain unverified. Instantly campaign import has separate approval and duplicate/suppression checks.
 
-## Development
-`npm test` runs the pure logic tests (email parsing, filters, A/B math). `npm run typecheck`, `npm run build`.
-`INSTANTLY_API_URL`, `OPENAI_API_URL`, `APIFY_API_URL`, `APP_URL` override API hosts for local mocks.
+Legacy Apify sourcing/tick/autopilot modules also exist. Their settings and permissions must be verified before enabling or changing them; this README does not declare them audited or disabled. See the operational runbook.
+
+## Planned Reddit FARM integration
+
+The configuration registry includes `FARM_PARTNER_BASE_URL`, `FARM_CF_ACCESS_CLIENT_ID`, `FARM_CF_ACCESS_CLIENT_SECRET`, and `FARM_PARTNER_TOKEN`. These names do not connect or activate the partner service. Enter values only in the correct Vercel project's server environment; obtain the partner API contract before implementing posting, warming or comments.
