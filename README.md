@@ -22,6 +22,6 @@ Form quotes are not agreed prices. Profile-text scores are not video/audio revie
 
 Legacy Apify sourcing/tick/autopilot modules also exist. Their settings and permissions must be verified before enabling or changing them; this README does not declare them audited or disabled. See the operational runbook.
 
-## Planned Reddit FARM integration
+## Reddit FARM integration
 
-The configuration registry includes `FARM_PARTNER_BASE_URL`, `FARM_CF_ACCESS_CLIENT_ID`, `FARM_CF_ACCESS_CLIENT_SECRET`, and `FARM_PARTNER_TOKEN`. These names do not connect or activate the partner service. Enter values only in the correct Vercel project's server environment; obtain the partner API contract before implementing posting, warming or comments.
+See [Reddit Posting / FARM](docs/REDDIT_FARM.md). Server adapter and owner-confirmed posting/proposal controls are implemented. Production requires the four FARM server variables; local credentials do not configure the hosted app. Reddit delivery still depends on FARM phone readiness.

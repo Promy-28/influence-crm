@@ -6,7 +6,7 @@
 - Vercel project: `influence-crm`, production `https://influence-crm-ashy.vercel.app`.
 - Supabase project: `ubfanvqktdwwjdsvrinz`.
 - Separate owner-private cloud Site: `appgprj_6af3bd24923081919f71e9090224c51b`, source and publication managed by Sites. Its worker uses authenticated CRM bridge operations; it is not deployed by pushing this CRM repository.
-- FARM Reddit partner: planned server integration; credentials/endpoints are not connected by this documentation.
+- FARM Reddit partner: server-only adapter, read cache, owner-confirmed post submission and warmup proposals; see REDDIT_FARM.md for configuration and upstream limits.
 
 ## Main modules
 

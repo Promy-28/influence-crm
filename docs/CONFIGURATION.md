@@ -8,20 +8,18 @@ Local development: `.env.local`, excluded from Git. `.env.example` is the tracke
 
 Keep the recoverable master copies and account recovery information in the organization's access-controlled password manager. Vercel is runtime delivery, not the handoff inventory. Inventory entries record owner, environment, purpose, scopes, expiry and rotation procedure, **not values**.
 
-## FARM integration contract (planned, not connected yet)
+## FARM integration contract
 
 | Name | Meaning | Vercel type | Consumer |
 | --- | --- | --- | --- |
-| `FARM_PARTNER_BASE_URL` | HTTPS base address of the partner API, not an API key | Config | Future server-side FARM adapter |
+| `FARM_PARTNER_BASE_URL` | HTTPS base address of the partner API, not an API key | Config | Server-side FARM adapter |
 | `FARM_CF_ACCESS_CLIENT_ID` | Cloudflare Access service-token identifier | Secret, kept with its credential pair | Same server adapter |
 | `FARM_CF_ACCESS_CLIENT_SECRET` | Cloudflare Access service-token secret | Secret | Same server adapter |
 | `FARM_PARTNER_TOKEN` | Separate partner API credential | Secret | Same server adapter |
 
-These variables belong to **influence-crm only**, not unrelated projects or globally shared team variables. Current UI does not expose or consume them. A URL without credentials can be provided as documentation; secret values should be entered directly into Vercel.
+These variables belong to **influence-crm only**, Production. The adapter reads them lazily; no values reach the browser. Local .env.local is not uploaded or committed. Transfer values through approved secret provisioning or enter them directly in Vercel; never print them for tool transport.
 
-Cloudflare Access uses the headers `CF-Access-Client-Id` and `CF-Access-Client-Secret`. This authenticates the Access layer, not necessarily the partner API itself. The partner token's header, scopes and endpoint behavior must be confirmed from the partner's API documentation; do not assume Bearer authentication.
-
-Before implementing Reddit posting/warming/comments, obtain an API reference or OpenAPI spec, allowed operations and rate limits, test account/environment, service-token permissions/expiry, and examples without credentials. The adapter must validate configuration lazily, make requests only to the configured HTTPS origin, redact credentials/errors, bound timeouts, handle 401/403/429 separately, and refuse cross-origin authenticated redirects. Retries of writes require provider-supported idempotency or explicit reconciliation. Adding credentials alone must not start posting.
+Fixed base: https://farm.promy.io/api/v1/partner. Headers: CF-Access-Client-Id, CF-Access-Client-Secret and Authorization: Bearer (partner token). Redirects are refused. See [FARM runbook](REDDIT_FARM.md) for supported actions, idempotency and runtime acceptance. Credential installation does not start posting or warmup.
 
 ## Existing runtime configuration
 
