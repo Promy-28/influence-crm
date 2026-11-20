@@ -17,7 +17,7 @@ Do not assume access to GitHub also grants Vercel, Supabase, the private Site or
 
 ## Open work; do not report as completed
 
-- FARM: server adapter and UI are implemented (see REDDIT_FARM.md). Complete production credential provisioning and readback, then owner-approved real write acceptance. Reddit phone publishing readiness remains an upstream dependency; individual comment submission is unsupported.
+- FARM: server adapter and UI are implemented (see REDDIT_FARM.md). Production credential provisioning/readback succeeded on 2026-11-20 (5 Reddit accounts and both assigned programs). Batch plans and finite daily schedules are implemented; complete owner-approved real write acceptance. Reddit phone publishing readiness remains an upstream dependency; individual comment submission is unsupported.
 - Individual user authentication/roles and separation of the record encryption key from shared login password.
 - Comprehensive legacy autopilot/sourcing permissions audit, tested backup restore, broader observability and ownership assignment.
 - Verify repository secret-scanning/push-protection availability and enable it through the authorized repository administrator. No claim that it was enabled by this change.
