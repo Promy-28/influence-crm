@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {approvalToken,validDraftApproval,readyDraft,latestDrafts} from '../src/lib/draft-approval.ts';
 import {renderReplyMacro,REPLY_BANNER} from '../src/lib/promy-bot/reply-macro.ts';
-const fixture=()=>({id:'12345678',emailId:'incoming',campaign:'green',threadId:'thread',recipient:'jane@example.com',eaccount:'kim@example.com',subject:'Re: Work',status:'draft',createdAt:'2026-11-16T12:00:00Z',...renderReplyMacro({body:'Thank you for the update.',firstName:'Jane',signature:'Best regards,<br>Kim'})});
+const fixture=()=>({contextVersion:3,conversationFingerprint:'a'.repeat(64),id:'12345678',emailId:'incoming',campaign:'green',threadId:'thread',recipient:'jane@example.com',eaccount:'kim@example.com',subject:'Re: Work',status:'draft',createdAt:'2026-11-16T12:00:00Z',...renderReplyMacro({body:'Thank you for the update.',firstName:'Jane',signature:'Best regards,<br>Kim'})});
 const now=Date.parse('2026-11-16T13:00:00Z');
 test('approval is bound to exact shown content, recipient, sender, thread and status',()=>{
  const d=fixture(),token=approvalToken(d,'fixture');assert.equal(validDraftApproval(d,token,'fixture'),true);

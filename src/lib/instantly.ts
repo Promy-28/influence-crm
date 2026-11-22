@@ -1,3 +1,5 @@
+import {assertNewOutreach} from './outreach-protection';
+import {localOutreachProtection} from './outreach-protection-server';
 import {withCampaignBanner} from './email-branding';
 import {composeReplyMacro} from "./promy-bot/reply-macro";
 import "server-only";
@@ -132,6 +134,7 @@ export async function pushLeads(limit?: number) {
   const started = Date.now(); let added = 0, skipped = 0;
   for (const [i, c] of ready.entries()) {
     if (Date.now() - started > 40000) break;
+    try{await assertNewOutreach(c.email,(path,body)=>inst('/api/v2'+path,body?{method:'POST',body:JSON.stringify(body)}:{}),()=>localOutreachProtection(c.email));}catch{skipped++;continue;}
     const arm = order[i] ?? arms[0];
     const code = c.ref_code ?? refCode();
     const ref_link = s.signup_url.replace("{code}", code);
@@ -210,18 +213,9 @@ export async function findThread(creatorId: string, email: string) {
   return got ?? null;
 }
 
-export async function replyByEmail(creatorId: string, raw: string) {
-  const text = raw.replace(/\r/g, "").trim();
-  const { data: c } = await db.from("creators").select("email,inst_reply_uuid,eaccount,inst_subject").eq("id", creatorId).single();
-  if (!c) throw new Error("Нет креатора");
-  let uuid = c.inst_reply_uuid, eaccount = c.eaccount, subject = c.inst_subject;
-  if (!uuid) { const t = await findThread(creatorId, c.email!); uuid = t?.id ?? null; eaccount = t?.eaccount ?? eaccount; subject = t?.subject ?? subject; }
-  if (!uuid || !eaccount) throw new Error("Не нашёл переписку в Instantly: ответь из Unibox");
-  const subj = /^re:/i.test(subject ?? "") ? subject : `Re: ${subject ?? ""}`.trim();
-  const formatted=await composeReplyMacro((path,body)=>inst("/api/v2"+path,body?{method:"POST",body:JSON.stringify(body)}:{}),{body:text,recipient:c.email!,eaccount:eaccount!});
-  await inst("/api/v2/emails/reply", { method: "POST", body: JSON.stringify({ eaccount, reply_to_uuid: uuid, subject: subj, body: { text:formatted.body, html:formatted.html } }) });
-  await db.from("messages").insert({ creator_id: creatorId, direction: "out", subject: subj, body: text, eaccount, via: "reply" });
-  await db.from("creators").update({ needs_reply: false }).eq("id", creatorId);
+// Legacy callers have no exact-thread approval snapshot. Never bypass the current workspace.
+export async function replyByEmail(_creatorId: string, _raw: string) {
+  throw new Error("Устаревший путь отправки отключён. Открой актуальный черновик в хабе и подтверди его после проверки свежей переписки.");
 }
 
 export async function removeLead(creatorId: string) {

@@ -22,7 +22,7 @@ test('simple brief requests remain supported and quoted historical questions do 
  assert.equal(replyCoverageIssue('Thanks!\n\nEm sábado, Mark escreveu:\nHow payment works?','Here is the brief.'),null);
 });
 test('a fresh incomplete AI draft cannot become sendable by being selected, while explicit owner edits are preserved',()=>{
- const d={...renderReplyMacro({body:briefReply('brief'),firstName:'Arielle',signature:'Best regards,<br>Mark'}),status:'draft',createdAt:new Date().toISOString(),incomingText:incoming};
+ const d={contextVersion:3,conversationFingerprint:'a'.repeat(64),...renderReplyMacro({body:briefReply('brief'),firstName:'Arielle',signature:'Best regards,<br>Mark'}),status:'draft',createdAt:new Date().toISOString(),incomingText:incoming};
  assert.equal(readyDraft(d),false);const body=d.body,html=d.html;
  assert.equal(readyDraft({...d,editedAt:new Date().toISOString()}),true);assert.equal(d.body,body);assert.equal(d.html,html);
 });

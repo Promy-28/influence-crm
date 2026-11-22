@@ -9,6 +9,8 @@ import {processOwnerUpdate} from './promy-bot/owner-update';
 import {parseCsv} from './text';
 import {createHash} from 'node:crypto';
 import {validApproval} from './hub-outreach';
+import {assertNewOutreach} from './outreach-protection';
+import {localOutreachProtection} from './outreach-protection-server';
 import {reviewFingerprint,validFormEmail} from './reddit-intake';
 import {syncRedditForm} from './reddit-form-sync';
 import {validDraftApproval,readyDraft} from './draft-approval';
@@ -74,9 +76,7 @@ async function addApprovedCreator(id:string,campaign:string,at:string,token:stri
  if(protectedContacts?.some((contact:any)=>contact.do_not_contact||contact.unsubscribed_at||contact.bounced_at))return ('Контакт защищён от рассылки: исторический импорт, отписка или недоставка. Ограничение сохранено.');
  if(c.outreach_state?.status&&c.outreach_state.status!=='permission_required')return ('По этому контакту уже был запрос добавления. Сначала проверь результат в Instantly.');
  const env=environment(),inst=await loadRecord(env,'instantly');if(!inst?.key)throw Error('Instantly не подключён');
- let cursor='',complete=false;const matches:any[]=[];
- for(let i=0;i<5;i++){const page=await api(inst.key,'/leads/list',{contacts:[c.email],limit:100,...(cursor?{starting_after:cursor}:{})});if(!Array.isArray(page.items))throw Error('Неполная проверка дублей');matches.push(...page.items.filter((l:any)=>String(l.email).toLowerCase()===c.email));if(!page.next_starting_after){complete=true;break}if(page.next_starting_after===cursor)throw Error('Повтор страницы');cursor=page.next_starting_after}
- if(!complete||matches.length)return (matches.length?'Уже есть в Instantly. Повторно не добавлен.':'Проверка дублей не завершена. Ничего не добавлено.');
+ try{await assertNewOutreach(c.email,(path,body)=>api(inst.key,path,body),()=>localOutreachProtection(c.email));}catch(e){return e instanceof Error?e.message:'Проверка истории не завершена. Ничего не добавлено.';}
  const current=await api(inst.key,'/campaigns/'+encodeURIComponent(campaign));if(current.id!==campaign)throw Error('Неверная кампания');
  // Atomic claim: two clicks cannot produce two imports, including after an uncertain response.
  const {data:claimed}=await db.from('reddit_creator_directory').update({outreach_state:{status:'importing',campaign,at:new Date().toISOString()}}).eq('id',id).eq('updated_at',c.updated_at).is('outreach_state',null).select('id');

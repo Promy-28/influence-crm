@@ -10,6 +10,7 @@ export function unquotedText(email) {
 }
 function intent(email) {
  const text = unquotedText(email).toLowerCase();
+ if(/(?:reacted via gmail|reaction to your message|sent a reaction|отреагировал[аи]? через gmail)/i.test(text)||/^(?:[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\u200D\s])+$/u.test(text)&&!!text.trim())return 'reaction';
  if (/\b(unsubscribe|remove me|stop (?:emailing|contacting)|do not contact|don't contact|opt out)\b/.test(text)) return 'opt_out';
  if (/\b(not interested|no interest|no thanks|not a fit|not for me)\b/.test(text)) return 'not_interested';
  if (/\b(undeliverable|delivery (?:status notification|failed)|mail delivery (?:failed|failure)|address not found|recipient not found)\b/.test(String(email.subject||'').toLowerCase()+' '+text)) return 'bounce';
@@ -41,7 +42,7 @@ export function analyzeConversations(emails,{now=Date.now(),complete=false,campa
  for(const [id,messages] of groups) {
   messages.sort((a,b)=>(a.time??Infinity)-(b.time??Infinity)||a.id.localeCompare(b.id));
   const active=messages.filter(m=>m.direction==='inbound'||m.direction==='outbound'),latest=active.at(-1)||null;
-  const human=messages.filter(m=>m.direction==='inbound'&&!['auto_reply','bounce'].includes(m.intent));
+  const human=messages.filter(m=>m.direction==='inbound'&&!['auto_reply','bounce','reaction'].includes(m.intent));
   const latestHuman=human.at(-1)||null,optedOut=human.some(m=>m.intent==='opt_out');
   let state='unknown';
   const ambiguousLatest=latest&&active.some(m=>m.id!==latest.id&&m.time===latest.time&&m.direction!==latest.direction);
@@ -49,6 +50,7 @@ export function analyzeConversations(emails,{now=Date.now(),complete=false,campa
    if(optedOut)state='opt_out';
    else if(latest?.intent==='bounce')state='bounced';
    else if(latest?.intent==='auto_reply')state='auto_reply';
+   else if(latest?.intent==='reaction')state='acknowledged';
    else if(latest?.direction==='inbound')state=latest.intent==='not_interested'?'not_interested':'waiting_on_us';
    else if(latest?.direction==='outbound')state=latestHuman?.intent==='not_interested'?'not_interested':'waiting_on_them';
   }

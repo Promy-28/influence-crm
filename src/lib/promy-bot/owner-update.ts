@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment, @typescript-eslint/no-unused-vars, prefer-const */
 // @ts-nocheck
+import {draftContextCurrent} from '../conversation-safety';
 // Shared exact-draft confirmation logic from Creator Hub. No model can call send.
   import {contactEmails} from './agent-runtime';
 import {unquotedText} from './mail-analysis';
@@ -67,7 +68,7 @@ export async function processOwnerUpdate(update,config,inst,env,tell,runtime){
    const c=await runtime.getThread(draft.emailId),current=c.canonical;
   await (runtime.assertFocus||assertMailFocus)(current);
   const state=await loadRecord(env,'threadstate:'+current.thread_id);if(state?.closed||state?.status==='closed'||Date.parse(state?.snoozedUntil||'')>Date.now()){await tell('Переписка закрыта или отложена. Сначала проверь её статус.');return true}
-  if(!c.complete||c.thread?.state!=='waiting_on_us'||c.thread.latestMessageId!==current.id||current.eaccount!==draft.eaccount||current.from_address_email!==draft.recipient||current.thread_id!==draft.threadId){draft.status='stale';await saveRecord(env,'draft:'+draft.id,draft);await tell('Переписка изменилась. Подготовь ответ на последнее письмо.');return true}
+  if(!await draftContextCurrent(draft,c)||!c.complete||c.thread?.state!=='waiting_on_us'||c.thread.latestMessageId!==current.id||current.eaccount!==draft.eaccount||current.from_address_email!==draft.recipient||current.thread_id!==draft.threadId){draft.status='stale';await saveRecord(env,'draft:'+draft.id,draft);await tell('Переписка изменилась. Подготовь ответ на последнее письмо.');return true}
   if(!readyDraft(draft)){await tell('Этот черновик не готов: проверь заполнение текста и макрос Reply с именем, подписью и баннером. Отправка заблокирована.');return true}
   draft.status='sending';await saveRecord(env,'draft:'+draft.id,draft);
   try{const result=await api(inst.key,'/emails/reply',{eaccount:draft.eaccount,reply_to_uuid:draft.emailId,subject:draft.subject,body:{text:draft.body,html:draft.html}});draft.status='sent';draft.sentId=result.id;draft.sentAt=new Date().toISOString();await saveRecord(env,'draft:'+draft.id,draft)}catch{draft.status='uncertain';await saveRecord(env,'draft:'+draft.id,draft);await tell('Результат '+draft.id+' нужно проверить в Instantly. Автоповтор отключён.');return true}

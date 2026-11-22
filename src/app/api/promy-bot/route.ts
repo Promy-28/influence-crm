@@ -1,3 +1,5 @@
+import {assertNewOutreach} from '@/lib/outreach-protection';
+import {localOutreachProtection} from '@/lib/outreach-protection-server';
 import {queueWritingRefresh} from '@/lib/writing-refresh';
 import {createAgentRuntime} from '@/lib/promy-bot/agent-runtime';
 import {api,campaigns} from '@/lib/promy-bot/store';
@@ -18,6 +20,7 @@ export async function POST(req:Request){
  const env=environment();let b;try{b=await req.json()}catch{return NextResponse.json({error:'Invalid JSON'},{status:400})}
  try{
   if(b.op==='queueWritingRefresh')return NextResponse.json(await queueWritingRefresh());
+  if(b.op==='checkOutreach'){if(typeof b.email!=='string'||b.email.length>254)throw Error('Invalid email');const inst=await loadRecord(env,'instantly');try{await assertNewOutreach(b.email,(path,body)=>api(inst.key,path,body),()=>localOutreachProtection(b.email));return NextResponse.json({allowed:true});}catch(e){return NextResponse.json({allowed:false,reason:e instanceof Error?e.message:'Проверка не завершена'});}}
   if(b.op==='autoQueue')return NextResponse.json(await queueAutomaticMail());
   if(b.op==='syncBranding')return NextResponse.json(await syncBranding());
   if(b.op==='syncRedditForm')return NextResponse.json(await syncRedditForm());

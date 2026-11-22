@@ -1,3 +1,5 @@
+import {draftContextCurrent} from './conversation-safety';
+import {liveApifyConversation} from './apify-mail';
 import 'server-only';
 import {db,all} from './db';
 import {environment,loadRecord,saveRecord,decodeRecord,api,telegram,campaigns} from './promy-bot/store';
@@ -26,6 +28,8 @@ export async function completeWritingRefresh(env:any,job:any,args:any){
  if(job.status!=='new')return {id:job.id,status:job.status,alreadyProcessed:true};
  const parentId=job.id.split(':').at(-1),parent=await loadRecord(env,'draft:'+parentId);
  if(!parent||parent.status!=='revision_requested'||!parent.writingRefreshRequestedAt||parent.emailId!==job.emailId||parent.recipient!==job.hubContext?.recipient)throw Error('WRITING_PARENT_CHANGED');
+ const current=parent.mailSource==='apify'?(await liveApifyConversation(env,parent.creatorId)).context:await (createAgentRuntime({env,loadRecord,saveRecord,api,telegram,campaigns}) as any).getThread(parent.emailId,{includeReferences:false});
+ if(!await draftContextCurrent(parent,current))args={draftBody:'',requiresClarification:true,answer:'Переписка изменилась или старый черновик не содержит проверенной версии истории. Нужен новый ответ по текущей ветке; старый текст и ручные правки сохранены.'};
  const body=String(args.draftBody||'').trim(),answer=cleanOwnerSummary(String(args.answer||''));if(body.length>2800)throw Error('WRITING_TOO_LONG');
  const issue=creatorPolicyIssue(body)||replyCoverageIssue(parent.incomingText,body);let draft:any=null;
  if(body&&!args.requiresClarification&&!issue){
@@ -39,6 +43,7 @@ export async function completeWritingRefresh(env:any,job:any,args:any){
 }
 export async function processWritingRefresh(env:any,job:any){
  const parent=await loadRecord(env,'draft:'+job.id.split(':').at(-1));if(!parent)throw Error('WRITING_PARENT_MISSING');
+ if(parent.contextVersion!==3||!parent.conversationFingerprint)return {processed:true,...await completeWritingRefresh(env,job,{draftBody:'',requiresClarification:true,answer:'Нужна свежая проверка истории.'})};
  const preset=approvedBriefRewrite(parent);if(preset)return {processed:true,template:true,...await completeWritingRefresh(env,job,preset)};
  const creatorFacts=await loadRecord(env,'creatorfacts:'+String(parent.recipient||'').toLowerCase());
  const input={task:'copyedit_unsent_draft',ownerInstruction:job.text,previousDraft:{body:parent.replyContent||parent.body,summary:parent.summary,ownerEditedAt:parent.editedAt||null},conversation:{canonical:{body:{text:parent.incomingText}},briefContext:parent.briefContext,creatorFacts},policy:CREATOR_POLICY};let result;try{result=await generateAnswer(input)}catch(e){if(!(e instanceof Error)||e.message!=='BOT_MODEL_INVALID')throw e;result=await generateAnswer({...input,formatReminder:'Return ONLY valid JSON with answer:string, draftBody:string (empty string if no draft), requiresClarification:boolean. Keep the email body under 2800 characters.'})}
