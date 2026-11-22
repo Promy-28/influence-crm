@@ -88,10 +88,18 @@ export async function requestWorkspaceRevision(emailId:string,instruction:string
 
 // Durable, idempotent bulk migration. Never grants approval and never sends.
 export async function queueStaleDraftRefresh(source:MailSource='reddit',limit=500,force=false){
- const env=environment();let queued=0;const drafts=latestDrafts(await records(source)).filter(d=>needsDraftRefresh(d)||force&&['draft','stale','expired'].includes(d.status)&&d.emailId&&d.replyContent);
+ const env=environment(),r=runtime(env);let queued=0;const drafts=latestDrafts(await records(source)).filter(d=>needsDraftRefresh(d)||force&&['draft','stale','expired'].includes(d.status)&&d.emailId&&d.replyContent);
  for(const d of drafts.slice(0,Math.max(1,Math.min(500,limit)))){
-  try{await requestWorkspaceRevision(d.emailId,refreshInstruction(d),source,d.creatorId||null,d.id,approvalToken(d,process.env.APP_PASSWORD!));queued++}
-  catch(e){if(e instanceof Error&&e.message==='BOT_STATE_CONFLICT')return {queued,remaining:drafts.length-queued,retry:true};throw e}
+  const current=await loadRecord(env,'draft:'+d.id);if(!current||approvalToken(current,process.env.APP_PASSWORD!)!==approvalToken(d,process.env.APP_PASSWORD!))continue;
+  const previousStatus=current.status,token=approvalToken(current,process.env.APP_PASSWORD!),snapshot=regenerationSnapshot(current,{emailId:d.emailId,source,creatorId:d.creatorId||null,approval:token},process.env.APP_PASSWORD!);
+  const id='batch:revision:'+createHash('sha256').update(JSON.stringify([d.id,token,'automatic-context-refresh'])).digest('hex').slice(0,24);
+  try{
+   current.status='revision_requested';current.revisionJobId=id;await saveRecord(env,'draft:'+d.id,current);
+   await r.enqueueJob({id,source:'hub_batch',mailSource:source,creatorId:d.creatorId||null,emailId:d.emailId,text:refreshInstruction(d),kind:d.kind||'reply',followupAnchor:d.followupAnchor||null,hubContext:{previousDraft:snapshot,revisionOf:d.id}});queued++;
+  }catch(e){
+   const fresh=await loadRecord(env,'draft:'+d.id);if(fresh?.status==='revision_requested'&&fresh.revisionJobId===id){fresh.status=previousStatus;delete fresh.revisionJobId;await saveRecord(env,'draft:'+d.id,fresh)}
+   if(e instanceof Error&&(e.message==='BOT_STATE_CONFLICT'||e.message==='Agent queue is full'))return {queued,remaining:drafts.length-queued,capacity:true};throw e;
+  }
  }
  return {queued,remaining:Math.max(0,drafts.length-queued)};
 }
