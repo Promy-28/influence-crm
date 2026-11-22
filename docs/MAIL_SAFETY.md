@@ -15,3 +15,7 @@ The private Site's creator-import provider wrapper must call the CRM `checkOutre
 Regression coverage uses fixtures: old October test versus November paid multi-clip offer; Gmail reaction; changed manual outbound behind same incoming; old-context send rejection; cross-campaign prior mail, incomplete pagination and unavailable provider all block cold outreach. No live email or campaign import is a development test.
 
 Release rollback can restore old code but must not be used to bypass draft quarantine. No schema migration or credential rotation is required. No emails were sent or contacts imported as part of verification.
+
+
+## Automatic legacy-draft refresh
+Opening Drafts automatically queues legacy, stale and expired versions across the selected source, not only the visible page. The explicit “Проверить и обновить все” button resumes the same durable queue. Queue insertion uses bounded ten-item requests; generation uses paced requests and stops on free quota exhaustion. The hourly automatic-mail scan also enqueues up to ten per source. Existing parent versions and owner edits are preserved through previousDraft; all new versions remain UNSENT and require a new exact-version approval. No bulk action grants send permission. Terminal/sending/uncertain drafts are excluded. Provider errors retain the queue for retry; paid fallback is not enabled.

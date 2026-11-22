@@ -4,7 +4,7 @@ import {NextResponse} from 'next/server';
 import {requireSession} from '@/lib/db';
 import {environment} from '@/lib/promy-bot/store';
 import {processJob} from '@/lib/promy-bot/realtime';
-import {draftWorkspace,queueDraftBatch,prepareNextDraft,editWorkspaceDraft,sendWorkspaceDraft,requestWorkspaceRevision,retryDraftPreparation} from '@/lib/draft-workspace';
+import {queueStaleDraftRefresh,draftWorkspace,queueDraftBatch,prepareNextDraft,editWorkspaceDraft,sendWorkspaceDraft,requestWorkspaceRevision,retryDraftPreparation} from '@/lib/draft-workspace';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export const maxDuration=60;
@@ -12,7 +12,8 @@ export async function GET(req:Request){await requireSession();return NextRespons
 export async function POST(req:Request){
  await requireSession();if(req.headers.get('origin')!==new URL(req.url).origin)return NextResponse.json({error:'Недопустимый источник запроса'},{status:403});
  let operation='';try{const b=await req.json(),source=mailSource(b.source);operation=b.op;let result;
-  if(b.op==='auto')result=await queueAutomaticMail();
+  if(b.op==='refreshAll')result=await queueStaleDraftRefresh(source,10,b.force===true);
+  else if(b.op==='auto')result=await queueAutomaticMail();
   else if(b.op==='queue')result=await queueDraftBatch(b.limit,source);
   else if(b.op==='next')result=await prepareNextDraft(source);
   else if(b.op==='retry')result=await retryDraftPreparation(source);

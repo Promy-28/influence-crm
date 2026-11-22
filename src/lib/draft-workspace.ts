@@ -1,3 +1,4 @@
+import {needsDraftRefresh,refreshInstruction} from './draft-refresh-policy';
 import {cleanOwnerSummary} from './writing-style';
 import {replyCoverageIssue,questionCoverage} from './reply-coverage';
 import {regenerationSnapshot} from './draft-regeneration';
@@ -28,7 +29,7 @@ export async function draftWorkspace(source:MailSource='reddit'){
  const saved=scopedDecisions.filter(d=>d.status==='needs_decision').map(d=>({...d,status:'completed'}));
  const savedIds=new Set(scopedDecisions.map(d=>(d.kind||'reply')+':'+d.emailId));
  const jobs=(queue?.items||[]).filter((j:any)=>j.source==='hub_batch'&&sourceMatches(j,source)&&(j.status!=='completed'||!j.draftId&&!savedIds.has((j.kind||'reply')+':'+j.emailId))).map((j:any)=>({id:j.id,kind:j.kind,emailId:j.emailId,creatorId:j.creatorId||null,status:j.status,answer:j.answer||'',error:j.prepareError||'',context:j.hubContext||null,requiresClarification:!!j.requiresClarification}));
- return {drafts:visible.map(d=>({...d,summary:cleanOwnerSummary(d.summary||''),coverage:questionCoverage(d.incomingText,d.replyContent),coverageIssue:d.kind==='followup'?null:replyCoverageIssue(d.incomingText,d.replyContent),campaignIds:campaignIds(d),briefContext:d.briefContext||briefEvidence(history.emails.filter((e:any)=>e.campaign_id===d.campaign&&e.eaccount===d.eaccount&&(e.thread_id===d.threadId||String(e.lead||e.to_address_email_list||'').toLowerCase()===d.recipient?.toLowerCase()))),safetyIssue:d.contextVersion!==3||!d.conversationFingerprint?'Черновик создан без актуальной проверки всей переписки. Отправка заблокирована; перегенерируй по текущей истории. Текст и ручные правки сохранены.':null,ready:readyDraft(d),editable:editableDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs].map(j=>({...j,campaignIds:[...(membership.get(String(j.context?.recipient||'').toLowerCase())||[])]})),mailSource:source,focus:source==='apify'?'Apify · TikTok / Instagram':MAIL_FOCUS.label};
+ return {drafts:visible.map(d=>({...d,summary:cleanOwnerSummary(d.summary||''),coverage:questionCoverage(d.incomingText,d.replyContent),coverageIssue:d.kind==='followup'?null:replyCoverageIssue(d.incomingText,d.replyContent),campaignIds:campaignIds(d),briefContext:d.briefContext||briefEvidence(history.emails.filter((e:any)=>e.campaign_id===d.campaign&&e.eaccount===d.eaccount&&(e.thread_id===d.threadId||String(e.lead||e.to_address_email_list||'').toLowerCase()===d.recipient?.toLowerCase()))),safetyIssue:d.contextVersion!==3||!d.conversationFingerprint?'Черновик создан без актуальной проверки всей переписки. Уже ставим на автоматическую проверку по текущей истории. Можно запустить «Проверить и обновить все». Текст и ручные правки сохранены.':null,ready:readyDraft(d),editable:editableDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs].map(j=>({...j,campaignIds:[...(membership.get(String(j.context?.recipient||'').toLowerCase())||[])]})),mailSource:source,focus:source==='apify'?'Apify · TikTok / Instagram':MAIL_FOCUS.label};
 }
 export async function queueDraftBatch(limit=30,source:MailSource='reddit'){
  if(source==='apify'){const env=environment(),r=runtime(env),[candidates,w,q]=await Promise.all([apifyCandidates(),draftWorkspace(source),loadRecord(env,'agent_jobs')]);const blocked=new Set(w.drafts.filter((d:any)=>['draft','sending','uncertain','sent'].includes(d.status)).map((d:any)=>d.emailId));let queued=0;for(const c of candidates){if(queued>=Math.max(1,Math.min(30,Math.floor(limit)||30)))break;if(c.inst_reply_uuid&&blocked.has(c.inst_reply_uuid)||(q?.items||[]).some((j:any)=>j.creatorId===c.id&&j.mailSource==='apify'&&(j.status==='new'||!c.inst_reply_uuid||j.emailId===c.inst_reply_uuid)))continue;await r.enqueueJob({id:'batch:'+crypto.randomUUID(),source:'hub_batch',mailSource:'apify',creatorId:c.id,emailId:c.inst_reply_uuid||(await liveApifyConversation(env,c.id)).context.canonical.id,text:'Подготовь уместный ответ на последнее входящее креатора Apify. Дай краткое пояснение по-русски. Если требуются цена, бриф или решение владельца, спроси его; не выдумывай условия.'});queued++}return {queued}}
@@ -83,4 +84,14 @@ export async function requestWorkspaceRevision(emailId:string,instruction:string
  const q=await loadRecord(env,'agent_jobs'),previous=[...(q?.items||[])].reverse().find((j:any)=>j.id!==id&&j.emailId===emailId&&j.mailSource===source);const followup=parentDraft?.kind==='followup'?parentDraft:previous?.kind==='followup'?previous:null;if(followup){Object.assign(q.items.find((j:any)=>j.id===id),{kind:'followup',followupAnchor:followup.followupAnchor});await saveRecord(env,'agent_jobs',q)}
  if(!parentDraft)for(const old of await records(source))if(old.emailId===emailId&&old.status==='draft'){const fresh=await loadRecord(env,'draft:'+old.id);if(fresh?.status==='draft'){fresh.status='revision_requested';await saveRecord(env,'draft:'+old.id,fresh)}}
  return {queued:1,jobId:id};
+}
+
+// Durable, idempotent bulk migration. Never grants approval and never sends.
+export async function queueStaleDraftRefresh(source:MailSource='reddit',limit=500,force=false){
+ const env=environment();let queued=0;const drafts=latestDrafts(await records(source)).filter(d=>needsDraftRefresh(d)||force&&['draft','stale','expired'].includes(d.status)&&d.emailId&&d.replyContent);
+ for(const d of drafts.slice(0,Math.max(1,Math.min(500,limit)))){
+  try{await requestWorkspaceRevision(d.emailId,refreshInstruction(d),source,d.creatorId||null,d.id,approvalToken(d,process.env.APP_PASSWORD!));queued++}
+  catch(e){if(e instanceof Error&&e.message==='BOT_STATE_CONFLICT')return {queued,remaining:drafts.length-queued,retry:true};throw e}
+ }
+ return {queued,remaining:Math.max(0,drafts.length-queued)};
 }

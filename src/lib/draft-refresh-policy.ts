@@ -1,0 +1,6 @@
+import {MAIL_CONTEXT_VERSION} from './conversation-safety.ts';
+export function needsDraftRefresh(d:any,now=Date.now()){
+ return ['draft','stale','expired'].includes(d.status)&&!!d.emailId&&!!d.replyContent&&
+ (d.status!=='draft'||d.contextVersion!==MAIL_CONTEXT_VERSION||!/^[a-f0-9]{64}$/.test(d.conversationFingerprint||'')||!Number.isFinite(Date.parse(d.createdAt))||now-Date.parse(d.createdAt)>86400000);
+}
+export function refreshInstruction(d:any){return 'Автоматическая проверка старого черновика: прочитай ВСЮ актуальную ветку Instantly и последнее персональное предложение. Если текст всё ещё уместен, сохрани его без стилистического переписывания. Сохрани смысл ручных правок владельца из previousDraft. Если появились новые письма или этап работы изменился — обнови ответ по текущему этапу, не начинай работу заново и не проси уже присланный образец. Ответь на все вопросы. Реакции Gmail не требуют ответа. Если ответ не нужен, не создавай черновик. Если не хватает существенного решения, задай точный вопрос владельцу. Ничего не отправляй. '+(d.editedAt?'У этой версии есть ручные правки владельца, особенно важно сохранить их.':'');}
