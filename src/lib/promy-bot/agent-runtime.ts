@@ -90,7 +90,7 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
   if(typeof id!=='string'||!id||id.length>200||typeof text!=='string'||!text.trim()||text.length>12000)throw Error('Invalid job');
   const queue=await load('agent_jobs')||{items:[]};const existing=queue.items.find(j=>j.id===id);if(existing)return existing;
   // Never evict unfinished work to silently make room.
-  if(queue.items.length>=100){queue.items=queue.items.filter(j=>j.status==='new'||j.status==='delivering'||j.status==='uncertain');if(queue.items.length>=100)throw Error('Agent queue is full')}
+  if(queue.items.length>=1000){queue.items=queue.items.filter(j=>j.status==='new'||j.status==='delivering'||j.status==='uncertain');if(queue.items.length>=1000)throw Error('Agent queue is full')}
   const job={id,text:text.trim(),emailId,source,mailSource,creatorId,replyToMessageId,kind,followupAnchor,automaticPolicy,hubContext,status:'new',createdAt:iso()};queue.items.push(job);await save('agent_jobs',queue);return job;
  }
  async function resolveContact(address){
