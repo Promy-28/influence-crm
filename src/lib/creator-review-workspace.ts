@@ -5,6 +5,7 @@ import {db} from './db';
 import {redditDirectory,safeLinks} from './hub-data';
 import {creatorProgress,creatorReviewState} from './creator-progress';
 import {browserEvidence} from './browser-review-policy';
+import {twelveMediaTask} from './twelve-media';
 export async function reviewWorkspace(){
  const [rows,browserAgent]=await Promise.all([redditDirectory(),loadRecord(environment(),'_creator_browser_agent')]);return {browserAgent:browserAgent||{enabled:false},counts:creatorProgress(rows),at:new Date().toISOString(),rows:rows.map((c:any)=>({id:c.id,email:c.email,name:c.payload.name||c.payload.reddit||c.email,profile:c.payload.profile||'',videos:c.payload.videos||'',links:safeLinks(c.payload.profile+' '+c.payload.videos),price:c.payload.price||'',state:creatorReviewState(c),reason:c.payload.assessment?.reason||'',ownerRating:c.rating,ownerReason:c.reason,updatedAt:c.updated_at,legacy:c.legacy,browserReview:c.payload.browserReview||null}))};
 }
@@ -54,12 +55,19 @@ export async function mediaServiceDiagnostics(){
 
 // Owner-only, bounded real-media control: same uploaded sample/key/model, minimal request.
 // No source file or credential is returned; a text probe cannot prove audio support.
-export async function mediaSampleDiagnostic(){
+export async function mediaSampleDiagnostic(model='gemini-3.5-flash-lite'){
+ if(!['gemini-3.5-flash-lite','gemini-3.8-flash'].includes(model))throw Error('Diagnostic model not allowed');
  if(!process.env.GEMINI_API_KEY||process.env.GEMINI_FREE_PROJECT_CONFIRMED!=='true')throw Error('Free video service not configured');
  const {data:row}=await db.from('creator_media_reviews').select('provider_file').eq('creator_id','hub-33b8ab62652e566d').not('provider_file','is',null).order('started_at',{ascending:false}).limit(1).maybeSingle();
  const f=row?.provider_file;if(!f?.uri?.startsWith('https://generativelanguage.googleapis.com/'))throw Error('Cached Mary sample missing');
- const started=Date.now();const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',{method:'POST',headers:{'x-goog-api-key':process.env.GEMINI_API_KEY,'content-type':'application/json'},body:JSON.stringify({contents:[{parts:[{fileData:{fileUri:f.uri,mimeType:f.mimeType}},{text:'Listen to the actual audio and inspect the video. Quote the first 15 spoken words exactly, with approximate timestamps. Describe vocal pace, clarity, energy, pauses and background noise with concrete audible evidence. Separately describe the visible framing. If audio is unavailable say so; never infer speech from captions. Answer in Russian, keeping quoted speech in its original language.'}]}],generationConfig:{maxOutputTokens:1800}}),signal:AbortSignal.timeout(40000),cache:'no-store'});
- const d=await r.json().catch(()=>({}));const clean=(v:unknown)=>String(v||'').replace(/https?:\/\/\S+/g,'[url]').replace(/AIza[\w-]+/g,'[redacted]').slice(0,6000);
- const result={at:new Date().toISOString(),test:'same_real_video_minimal_request',model:'gemini-3.5-flash-lite',http:r.status,rpcStatus:d.error?.status||null,message:clean(d.error?.message),elapsedMs:Date.now()-started,text:r.ok?clean((d.candidates?.[0]?.content?.parts||[]).map((p:any)=>p.text||'').join('')):''};
+ const started=Date.now();const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent',{method:'POST',headers:{'x-goog-api-key':process.env.GEMINI_API_KEY,'content-type':'application/json'},body:JSON.stringify({contents:[{parts:[{fileData:{fileUri:f.uri,mimeType:f.mimeType}},{text:'Listen to the actual audio and inspect the video. Quote the first 15 spoken words exactly, with approximate timestamps. Describe vocal pace, clarity, energy, pauses and background noise with concrete audible evidence. Separately describe the visible framing. If audio is unavailable say so; never infer speech from captions. Answer in Russian, keeping quoted speech in its original language.'}]}],generationConfig:{maxOutputTokens:1800}}),signal:AbortSignal.timeout(40000),cache:'no-store'}).catch(()=>null);
+ const d=await r?.json().catch(()=>({}))||{};const clean=(v:unknown)=>String(v||'').replace(/https?:\/\/\S+/g,'[url]').replace(/AIza[\w-]+/g,'[redacted]').slice(0,6000);
+ const result={at:new Date().toISOString(),test:'same_real_video_minimal_request',model,http:r?.status||null,rpcStatus:d.error?.status||null,message:r?clean(d.error?.message):'Provider request exceeded 40 seconds',elapsedMs:Date.now()-started,text:r?.ok?clean((d.candidates?.[0]?.content?.parts||[]).map((p:any)=>p.text||'').join('')):''};
  const env=environment(),state=await loadRecord(env,'_creator_browser_agent')||{enabled:false};state.mediaControl=result;await saveRecord(env,'_creator_browser_agent',state);return result;
+}
+
+export async function twelveSampleDiagnostic(){
+ const env=environment(),state=await loadRecord(env,'_creator_browser_agent')||{enabled:false};
+ const result=await twelveMediaTask({apiKey:process.env.TWELVELABS_API_KEY||'',freePlanConfirmed:process.env.TWELVELABS_FREE_PLAN_CONFIRMED==='true',source:'https://maryfeeneyugc.my.canva.site/_assets/video/aa25d9a71029c586b16137866cd82bc7.mp4',taskId:state.twelveControl?.taskId});
+ state.twelveControl={...result,at:new Date().toISOString()};await saveRecord(env,'_creator_browser_agent',state);return result;
 }
