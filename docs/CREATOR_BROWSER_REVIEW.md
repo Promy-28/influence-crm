@@ -17,3 +17,5 @@ Verified acquisition: browser play in Lisa's Canva portfolio revealed a relevant
 
 ## Bounded API fallback
 On explicit502/503/504 received within25seconds, video analysis makes one alternative generateContent request to Gemini2.5Flash-Lite using the same real uploaded file/URL and same verified unbilled project. No429 retries, paid services or new credentials. Only schema-validated audio+visual evidence counts, actual model/transport stored. This is a model/endpoint fallback within Google, not provider independence or a stability guarantee. No local video downloads. If both fail, return precise deferred failure.
+
+Live availability probes on2026-11-24:2.5FlashLite generateContent404,3.1FlashLite503,3.5FlashLite generateContent200 while its Interactions video calls503. Route uses the successful same-model generateContent transport when live diagnostics establish availability. Alternate models are disabled unless a successful live probe exists; no blind404 fallback. Actual video acceptance must be reported separately from text probe.

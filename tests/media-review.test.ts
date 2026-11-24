@@ -86,3 +86,8 @@ test('failed fallback preserves deferred error and cannot invent a review or try
 });
 
 test('unproven or unsupported fallback models are never called',async()=>{let calls=0;await assert.rejects(analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:sample,fetcher:(async()=>{calls++;return new Response('busy',{status:503})}) as typeof fetch}),/MEDIA_PROVIDER_503/);assert.equal(calls,1);await assert.rejects(analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:sample,fallbackModel:'paid-unknown',fetcher:(async()=>{throw Error('must not run')}) as typeof fetch}),/FALLBACK_MODEL_NOT_ALLOWED/)});
+
+test('responsive generateContent route analyzes the real video directly without Interactions or local downloads',async()=>{
+ let calls=0;const fetcher=(async(url,req)=>{calls++;assert.match(String(url),/models\/gemini-3.5-flash-lite:generateContent$/);const body=JSON.parse(String(req?.body));assert.equal(body.contents[0].parts[0].fileData.fileUri,sample);return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(result)}]}}]});}) as typeof fetch;
+ const got=await analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:sample,preferGenerateContent:true,fetcher});assert.equal(got.audioReviewed,true);assert.equal(got.transportUsed,'generateContent');assert.equal(calls,1);
+});
