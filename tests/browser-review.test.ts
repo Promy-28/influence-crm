@@ -26,3 +26,12 @@ test('queue remaining includes all pages and more than twenty, preserves complet
  const exports:any={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL('../src/lib/creator-review-workspace.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:(id:string)=>deps[id],Date,Promise,Set,URL});
  const result=await exports.queueRemainingReviews();assert.equal(result.queued,58);assert.equal(changed.length,58);assert.equal(changed.includes('id0'),false);assert.equal(changed.includes('id1'),false);
 });
+
+test('agent enable and stop persist independently from reported evidence and do not grant campaign/email permissions',async()=>{
+ let record:any=null;const deps:any={'server-only':{},'node:crypto':{},'./db':{},'./hub-data':{},'./creator-progress':{},'./browser-review-policy':{},'./promy-bot/store':{environment:()=>({}),loadRecord:async()=>structuredClone(record),saveRecord:async(_:any,id:string,v:any)=>{assert.equal(id,'_creator_browser_agent');record=structuredClone(v)}}};
+ const exports:any={};vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL('../src/lib/creator-review-workspace.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:(id:string)=>deps[id],Date});
+ await exports.setBrowserAgent({op:'agent',enabled:true});assert.equal(record.enabled,true);assert.equal(record.lastReport,undefined);
+ await exports.setBrowserAgent({op:'agentReport',summary:'1 образец найден; звук ещё не проверен:503.'});assert.equal(record.enabled,true);assert.match(record.lastReport,/503/);
+ await exports.setBrowserAgent({op:'agent',enabled:false});assert.equal(record.enabled,false);assert.match(record.lastReport,/503/);
+ await assert.rejects(exports.setBrowserAgent({op:'agent',enabled:'yes'}));assert.equal(record.enabled,false);
+});

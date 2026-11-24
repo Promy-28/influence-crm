@@ -1,11 +1,12 @@
 import 'server-only';
+import {environment,loadRecord,saveRecord} from './promy-bot/store';
 import {createHash} from 'node:crypto';
 import {db} from './db';
 import {redditDirectory,safeLinks} from './hub-data';
 import {creatorProgress,creatorReviewState} from './creator-progress';
 import {browserEvidence} from './browser-review-policy';
 export async function reviewWorkspace(){
- const rows=await redditDirectory();return {counts:creatorProgress(rows),at:new Date().toISOString(),rows:rows.map((c:any)=>({id:c.id,email:c.email,name:c.payload.name||c.payload.reddit||c.email,profile:c.payload.profile||'',videos:c.payload.videos||'',links:safeLinks(c.payload.profile+' '+c.payload.videos),price:c.payload.price||'',state:creatorReviewState(c),reason:c.payload.assessment?.reason||'',ownerRating:c.rating,ownerReason:c.reason,updatedAt:c.updated_at,legacy:c.legacy,browserReview:c.payload.browserReview||null}))};
+ const [rows,browserAgent]=await Promise.all([redditDirectory(),loadRecord(environment(),'_creator_browser_agent')]);return {browserAgent:browserAgent||{enabled:false},counts:creatorProgress(rows),at:new Date().toISOString(),rows:rows.map((c:any)=>({id:c.id,email:c.email,name:c.payload.name||c.payload.reddit||c.email,profile:c.payload.profile||'',videos:c.payload.videos||'',links:safeLinks(c.payload.profile+' '+c.payload.videos),price:c.payload.price||'',state:creatorReviewState(c),reason:c.payload.assessment?.reason||'',ownerRating:c.rating,ownerReason:c.reason,updatedAt:c.updated_at,legacy:c.legacy,browserReview:c.payload.browserReview||null}))};
 }
 async function canonical(c:any){
  if(!c.legacy)return c;
@@ -30,4 +31,11 @@ export async function saveBrowserReview(input:any,reviewer:string){
  const {data,error}=await db.from('reddit_creator_directory').update({payload,...(evidence.completed?{owner_rating:evidence.decision,owner_reason:evidence.reason,owner_reviewed_at:at,review_pending:false}:{}),updated_at:at}).eq('id',c.id).eq('updated_at',c.updated_at).select('id');
  if(error||!data?.length)throw Error('Кто-то обновил карточку одновременно. Текст не сохранён — повтори после обновления.');
  return {saved:true,completed:evidence.completed};
+}
+
+export async function setBrowserAgent(input:any){
+ const env=environment(),current=await loadRecord(env,'_creator_browser_agent')||{enabled:false};
+ if(input.op==='agent'){if(typeof input.enabled!=='boolean')throw Error('Неверное состояние');Object.assign(current,{enabled:input.enabled,requestedAt:new Date().toISOString()})}
+ else if(input.op==='agentReport'){const summary=String(input.summary||'').trim();if(!summary||summary.length>1500)throw Error('Нужен краткий итог запуска');Object.assign(current,{lastReport:summary,lastRunAt:new Date().toISOString()})}
+ await saveRecord(env,'_creator_browser_agent',current);return current;
 }
