@@ -15,6 +15,9 @@ import {reviewFingerprint,validFormEmail} from './reddit-intake';
 import {syncRedditForm} from './reddit-form-sync';
 import {validDraftApproval,readyDraft} from './draft-approval';
 import {renderReplyMacro} from './promy-bot/reply-macro';
+import {creatorImportProvider,reconcileCreatorImports} from './creator-import-server';
+import {submitCreatorImport,importMessage} from './creator-import';
+import {after} from 'next/server';
 const runtime=(env:ReturnType<typeof environment>):any=>createAgentRuntime({env,loadRecord,saveRecord,telegram,api,campaigns});
 const go=(path:string,msg:string):never=>redirect(path+(path.includes('?')?'&':'?')+'msg='+encodeURIComponent(msg));
 export async function checkRedditForm(){
@@ -74,14 +77,18 @@ async function addApprovedCreator(id:string,campaign:string,at:string,token:stri
  const {data:protectedContacts,error:protectionError}=await db.from('creators').select('do_not_contact,unsubscribed_at,bounced_at').ilike('email',c.email);
  if(protectionError)throw Error('Не удалось проверить запреты контакта');
  if(protectedContacts?.some((contact:any)=>contact.do_not_contact||contact.unsubscribed_at||contact.bounced_at))return ('Контакт защищён от рассылки: исторический импорт, отписка или недоставка. Ограничение сохранено.');
- if(c.outreach_state?.status&&c.outreach_state.status!=='permission_required')return ('По этому контакту уже был запрос добавления. Сначала проверь результат в Instantly.');
- const env=environment(),inst=await loadRecord(env,'instantly');if(!inst?.key)throw Error('Instantly не подключён');
- try{await assertNewOutreach(c.email,(path,body)=>api(inst.key,path,body),()=>localOutreachProtection(c.email));}catch(e){return e instanceof Error?e.message:'Проверка истории не завершена. Ничего не добавлено.';}
- const current=await api(inst.key,'/campaigns/'+encodeURIComponent(campaign));if(current.id!==campaign)throw Error('Неверная кампания');
+ if(c.outreach_state?.status&&!['permission_required','rejected'].includes(c.outreach_state.status))return ('По этому контакту уже был запрос добавления. Хаб сверяет результат без повторной загрузки.');
+ const provider=await creatorImportProvider();
+ try{await assertNewOutreach(c.email,provider,()=>localOutreachProtection(c.email));}catch(e){return e instanceof Error?e.message:'Проверка истории не завершена. Ничего не добавлено.';}
+ const current=await provider('/campaigns/'+encodeURIComponent(campaign));if(current.id!==campaign)throw Error('Неверная кампания');
  // Atomic claim: two clicks cannot produce two imports, including after an uncertain response.
- const {data:claimed}=await db.from('reddit_creator_directory').update({outreach_state:{status:'importing',campaign,at:new Date().toISOString()}}).eq('id',id).eq('updated_at',c.updated_at).is('outreach_state',null).select('id');
+ let claim=db.from('reddit_creator_directory').update({outreach_state:{status:'importing',campaign,at:new Date().toISOString()}}).eq('id',id).eq('updated_at',c.updated_at);
+ claim=c.outreach_state?.status?claim.eq('outreach_state->>status',c.outreach_state.status):claim.is('outreach_state',null);
+ const {data:claimed}=await claim.select('id');
  if(!claimed?.length)return ('Добавление уже выполнялось. Автоповтор отключён.');
- let msg;try{await api(inst.key,'/leads/add',{campaign_id:campaign,skip_if_in_workspace:true,skip_if_in_campaign:true,verify_leads_on_import:false,leads:[{email:c.email,first_name:c.payload.name||c.payload.reddit||'',custom_variables:{reddit_username:c.payload.reddit||''}}]});await db.from('reddit_creator_directory').update({outreach_state:{status:'accepted',campaign,at:new Date().toISOString()}}).eq('id',id);msg='Instantly принял добавление. Письма пойдут по настройкам выбранной кампании; это ещё не подтверждение доставки.'}catch{await db.from('reddit_creator_directory').update({outreach_state:{status:'uncertain',campaign,at:new Date().toISOString()}}).eq('id',id);msg='Результат добавления нужно проверить в Instantly. Автоповтор отключён.'}
+ const result=await submitCreatorImport(c.email,c.payload.name||c.payload.reddit||'',campaign,provider);
+ const {error:saveError}=await db.from('reddit_creator_directory').update({outreach_state:{...result,campaign,at:new Date().toISOString()}}).eq('id',id).eq('outreach_state->>status','importing');
+ const msg=saveError?'Запрос выполнен; сохранение результата требует автоматической сверки. Повторная загрузка отключена.':importMessage(result);
  await log('reddit_campaign_request',msg,null,{email:c.email,campaign},who);return msg;
 }
 
@@ -101,5 +108,6 @@ export async function sendRedditBatch(f:FormData){
   catch{results.push({id,message:'Ошибка до подтверждения результата. Проверь статус; автоматического повтора нет.'})}
  }
  await saveRecord(environment(),'_reddit_batch_result',{at:new Date().toISOString(),results});
+ after(async()=>{try{await reconcileCreatorImports()}catch{/* Durable importing/accepted rows remain protected for the hourly readback. */}});
  revalidatePath('/creators');go('/creators/reddit-approval?source=reddit','Пачка обработана. Результаты ниже. Повторные добавления отключены.');
 }

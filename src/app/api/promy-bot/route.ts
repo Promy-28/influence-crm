@@ -7,6 +7,8 @@ import {mergeDirectoryPayload} from '@/lib/reddit-intake';
 import {syncRedditForm} from '@/lib/reddit-form-sync';
 import {queueAutomaticMail} from '@/lib/auto-mail';
 import {syncBranding} from '@/lib/branding-sync';
+import {reconcileCreatorImports} from '@/lib/creator-import-server';
+import {after} from 'next/server';
 import {NextResponse} from 'next/server';
 import {db} from '@/lib/db';
 import {adminAuthorized,sharedId,environment,loadRecord,saveRecord,telegram,webhookSecret} from '@/lib/promy-bot/store';
@@ -43,6 +45,7 @@ export async function POST(req:Request){
    return NextResponse.json({synced:rows.length});
   }
   if(b.op==='directoryWork'){
+   after(async()=>{try{await reconcileCreatorImports()}catch{/* Read-only hourly reconciliation resumes on the next call. */}});
    const [requests,feedback]=await Promise.all([db.from('reddit_creator_directory').select('id,email,payload,review_requested_at').eq('review_pending',true).order('review_requested_at').limit(20),db.from('reddit_creator_directory').select('id,email,owner_rating,owner_reason,payload').not('owner_reviewed_at','is',null).order('owner_reviewed_at',{ascending:false}).limit(20)]);
    return NextResponse.json({requests:requests.data||[],feedback:feedback.data||[]});
   }

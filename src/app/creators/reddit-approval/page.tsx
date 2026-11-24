@@ -4,10 +4,14 @@ import {reviewFingerprint,suggestedCampaign,validFormEmail} from '@/lib/reddit-i
 import {sendRedditBatch} from '@/lib/hub-actions';
 import {environment,loadRecord} from '@/lib/promy-bot/store';
 import {Submit} from '@/components/ui';
-export const maxDuration=60;
+import {reconcileCreatorImports} from '@/lib/creator-import-server';
+export const maxDuration=300;
 export default async function RedditApproval({searchParams}:{searchParams:Promise<{msg?:string}>}){
- const sp=await searchParams;const [directory,membership,last]=await Promise.all([redditDirectory(),creatorCampaigns(),loadRecord(environment(),'_reddit_batch_result')]);
- const ready=directory.filter((c:any)=>!c.legacy&&!c.review_pending&&c.payload.reviewStatus!=='pending_review'&&!c.outreach_state&&suggestedCampaign(c)&&validFormEmail(c.email)&&!membership.has(c.email.toLowerCase()));
+ const sp=await searchParams;
+ // Read-only reconciliation also resolves imports completed outside the hub, without re-uploading.
+ try{await reconcileCreatorImports()}catch{/* Display the durable pending state when Instantly is unavailable. */}
+ const [directory,membership,last]=await Promise.all([redditDirectory(),creatorCampaigns(),loadRecord(environment(),'_reddit_batch_result')]);
+ const ready=directory.filter((c:any)=>!c.legacy&&!c.review_pending&&c.payload.reviewStatus!=='pending_review'&&(!c.outreach_state||c.outreach_state.status==='rejected')&&suggestedCampaign(c)&&validFormEmail(c.email)&&!membership.has(c.email.toLowerCase()));
  const rows=ready.slice(0,20),at=String(Date.now());
  return <div className="hub-stack"><a href="/creators?source=reddit" className="l">← Креаторы</a><h1>Проверка перед рассылкой · Reddit</h1><p className="sub">{ready.length} готовых · до 20 за подтверждение. Зелёные и жёлтые → Green / Yellow; красные → Red. Цвет можно исправить в карточке креатора.</p>
  {sp.msg&&<div className="okbox">{sp.msg}</div>}
@@ -24,6 +28,6 @@ export default async function RedditApproval({searchParams}:{searchParams:Promis
  </section>})}
  {!rows.length?<div className="panel hub-section">Новых готовых контактов нет. Запусти проверку формы в «Креаторах» или дождись результата проверки видео.</div>:<><label className="row"><input type="checkbox" required name="confirm" value="yes"/>Проверил выбранных и разрешаю добавить в указанные кампании</label><Submit className="btn-p">Подтвердить добавление выбранных в Instantly</Submit></>}
  </form>
- {last&&<details className="panel hub-section"><summary>Последний запуск · {last.at}</summary>{last.results?.map((r:any)=><p key={r.id}>{directory.find((c:any)=>c.id===r.id)?.email||r.id}: {r.message}</p>)}</details>}
+ {last&&<details className="panel hub-section"><summary>Последний запуск · {last.at}</summary>{last.results?.map((r:any)=>{const c=directory.find((c:any)=>c.id===r.id);return <p key={r.id}>{c?.email||r.id}: {c?.outreach_state?.status==='imported'?'Подтверждено: контакт есть в выбранной кампании Instantly.':r.message}</p>})}</details>}
  </div>;
 }
