@@ -6,6 +6,7 @@ import {redditDirectory,safeLinks} from './hub-data';
 import {creatorProgress,creatorReviewState} from './creator-progress';
 import {browserEvidence} from './browser-review-policy';
 import {twelveMediaTask} from './twelve-media';
+import {boundedVideoBytes} from './media-review';
 export async function reviewWorkspace(){
  const [rows,browserAgent]=await Promise.all([redditDirectory(),loadRecord(environment(),'_creator_browser_agent')]);return {browserAgent:browserAgent||{enabled:false},counts:creatorProgress(rows),at:new Date().toISOString(),rows:rows.map((c:any)=>({id:c.id,email:c.email,name:c.payload.name||c.payload.reddit||c.email,profile:c.payload.profile||'',videos:c.payload.videos||'',links:safeLinks(c.payload.profile+' '+c.payload.videos),price:c.payload.price||'',state:creatorReviewState(c),reason:c.payload.assessment?.reason||'',ownerRating:c.rating,ownerReason:c.reason,updatedAt:c.updated_at,legacy:c.legacy,browserReview:c.payload.browserReview||null}))};
 }
@@ -68,6 +69,19 @@ export async function mediaSampleDiagnostic(model='gemini-3.5-flash-lite'){
 
 export async function twelveSampleDiagnostic(){
  const env=environment(),state=await loadRecord(env,'_creator_browser_agent')||{enabled:false};
- const result=await twelveMediaTask({apiKey:process.env.TWELVELABS_API_KEY||'',freePlanConfirmed:process.env.TWELVELABS_FREE_PLAN_CONFIRMED==='true',source:'https://maryfeeneyugc.my.canva.site/_assets/video/aa25d9a71029c586b16137866cd82bc7.mp4',taskId:state.twelveControl?.taskId});
- state.twelveControl={...result,at:new Date().toISOString()};await saveRecord(env,'_creator_browser_agent',state);return result;
+ const apiKey=process.env.TWELVELABS_API_KEY||'';if(!apiKey||process.env.TWELVELABS_FREE_PLAN_CONFIRMED!=='true')throw Error('TWELVE_FREE_PLAN_NOT_CONFIGURED');
+ const source='https://maryfeeneyugc.my.canva.site/_assets/video/aa25d9a71029c586b16137866cd82bc7.mp4';
+ const previous=state.twelveControl||{};let result;
+ if(!previous.assetId&&!previous.taskId){
+  const media=await fetch(source,{redirect:'error',signal:AbortSignal.timeout(12000)});if(!media.ok||!media.headers.get('content-type')?.startsWith('video/'))throw Error('TWELVE_SOURCE_UNAVAILABLE');
+  const bytes=await boundedVideoBytes(media.body);const form=new FormData();form.append('method','direct');form.append('file',new Blob([bytes],{type:'video/mp4'}),'mary-introduction.mp4');
+  const r=await fetch('https://api.twelvelabs.io/v1.3/assets',{method:'POST',headers:{'x-api-key':apiKey},body:form,redirect:'error',signal:AbortSignal.timeout(20000)});const d=await r.json().catch(()=>({}));
+  result={http:r.status,assetId:r.ok?String(d._id||d.id||''):undefined,status:r.ok?'asset_processing':'failed',error:r.ok?'':String(d.code||'TWELVE_UPLOAD_FAILED')};
+ }else if(previous.assetId&&!previous.taskId){
+  if(!/^[a-zA-Z0-9_-]{1,128}$/.test(previous.assetId))throw Error('TWELVE_ASSET_INVALID');
+  const r=await fetch('https://api.twelvelabs.io/v1.3/assets/'+previous.assetId,{headers:{'x-api-key':apiKey},redirect:'error',signal:AbortSignal.timeout(15000)});const d=await r.json().catch(()=>({}));
+  if(!r.ok||d.status!=='ready')result={http:r.status,status:d.status==='failed'?'failed':'asset_processing',error:String(d.error?.code||'')};
+ }
+ if(!result)result=await twelveMediaTask({apiKey,freePlanConfirmed:true,source,assetId:previous.assetId,taskId:previous.taskId});
+ state.twelveControl={...previous,...result,at:new Date().toISOString()};await saveRecord(env,'_creator_browser_agent',state);return result;
 }

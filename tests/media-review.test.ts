@@ -97,3 +97,9 @@ test('short uploaded video never requests an interval beyond its duration and us
  const fetcher=(async(url,req)=>{if(String(url).endsWith('/files/short'))return Response.json({state:'ACTIVE',videoMetadata:{videoDuration:'26.583s'}});const body=JSON.parse(String(req?.body));assert.equal(body.contents[0].parts[0].fileData.fileUri,file.uri);assert.equal(body.contents[0].parts[0].videoMetadata,undefined);assert.equal(body.generationConfig.temperature,undefined);assert.equal(body.generationConfig.responseMimeType,undefined);return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(result)}]}}]});}) as typeof fetch;
  const got=await analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:'https://maryfeeneyugc.my.canva.site/_assets/video/example.mp4',providerFile:file,preferGenerateContent:true,fetcher});assert.equal(got.audioReviewed,true);
 });
+
+test('media observation is formatted separately without resending video, retaining the actual evidence report',async()=>{
+ let calls=0;const report='Речь: 2 сек This is a sample. Разборчивость 4, картинка 4; ровный свет и лицо в кадре.';
+ const fetcher=(async(url,req)=>{calls++;const body=JSON.parse(String(req?.body));if(calls===1){assert.ok(body.contents[0].parts[0].fileData);return Response.json({candidates:[{content:{parts:[{text:report}]}}]});}assert.equal(body.contents[0].parts.length,1);assert.equal(body.contents[0].parts[0].fileData,undefined);assert.ok(body.contents[0].parts[0].text.includes(JSON.stringify(report)));return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(result)}]}}]});}) as typeof fetch;
+ const got=await analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:sample,preferGenerateContent:true,fetcher});assert.equal(got.evidenceReport,report);assert.equal(got.transportUsed,'generateContent-evidence');assert.equal(calls,2);
+});

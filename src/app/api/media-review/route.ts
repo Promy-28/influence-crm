@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
     const code = e instanceof MediaReviewError ? e.code : "MEDIA_REVIEW_FAILED";
     await db.from("creator_media_reviews").update({ status: "failed", error: code, ...(e instanceof MediaReviewError&&e.providerFile?{provider_file:e.providerFile}:{}), finished_at: new Date().toISOString() }).eq("creator_id", creator.id).eq("source", source);
     if(code==='MEDIA_FILE_PROCESSING')return NextResponse.json({status:'processing',source,deferred:true},{status:202});
+    if(/MEDIA_PROVIDER_(503|502|504|UNAVAILABLE)/.test(code)||code==='MEDIA_FORMAT_UNAVAILABLE')return NextResponse.json({status:'deferred',error:code,source,deferred:true,retryAfterSeconds:300},{status:202});
     const blocked=['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO'].includes(code);
     return NextResponse.json({ error: code, source, deferred: code === "MEDIA_QUOTA_DEFERRED" }, { status: code === "MEDIA_QUOTA_DEFERRED" ? 429 : blocked?409:502 });
   }
