@@ -1,4 +1,18 @@
 import {boundedVideoBytes,mediaSource,MEDIA_RUBRIC,validateMediaReview,type MediaReview} from './media-review.ts';
+import {lookup} from 'node:dns/promises';
+import {isIP} from 'node:net';
+type ResolveHost=(host:string)=>Promise<{address:string}[]>;
+export function publicMediaAddress(address:string){
+ if(isIP(address)===6)return /^[23][0-9a-f]{3}:/i.test(address);
+ if(isIP(address)!==4)return false;
+ const [a,b]=address.split('.').map(Number);
+ return !(a===0||a===10||a===127||a>=224||(a===169&&b===254)||(a===172&&b>=16&&b<=31)||(a===192&&(b===168||b===0))||(a===100&&b>=64&&b<=127)||a===198&&(b===18||b===19));
+}
+export async function publicPortfolioMedia(source:string,parentUrl:string|undefined,resolve:ResolveHost=host=>lookup(host,{all:true})){
+ const u=new URL(source);let p;try{p=new URL(parentUrl?.startsWith('http')?parentUrl:'https://'+parentUrl)}catch{return false}
+ if(u.hostname.replace(/^www\./,'')!==p.hostname.replace(/^www\./,'')||isIP(u.hostname)||!u.hostname.includes('.')||/\.(localhost|local|internal|test|invalid)$/i.test(u.hostname))return false;
+ const addresses=await resolve(u.hostname);return addresses.length>0&&addresses.every(a=>publicMediaAddress(a.address));
+}
 export type JockeyState={source:string;assetId?:string;itemId?:string;uploadStarted?:boolean;itemStarted?:boolean;responseStarted?:boolean;result?:MediaReview};
 export function parseJockeyReview(d:any,itemId:string):MediaReview{
  if(d.status!=='completed')throw Error('MEDIA_JOCKEY_INCOMPLETE');
@@ -9,11 +23,13 @@ export function parseJockeyReview(d:any,itemId:string):MediaReview{
  let parsed;try{parsed=JSON.parse(raw.replace(/^```json\s*/i,'').replace(/\s*```$/,''))}catch{throw Error('MEDIA_RESULT_INVALID')}
  return {...validateMediaReview(parsed),modelUsed:'twelvelabs-jockey',transportUsed:'jockey-original-audio',evidenceReport:raw};
 }
-export async function runJockeyReview(opts:{apiKey:string;freePlanConfirmed:boolean;source:string;parentUrl?:string;storeId:string;state:JockeyState;save:(s:JockeyState)=>Promise<void>;fetcher?:typeof fetch;sleep?:(ms:number)=>Promise<void>}):Promise<MediaReview>{
+export async function runJockeyReview(opts:{apiKey:string;freePlanConfirmed:boolean;source:string;parentUrl?:string;storeId:string;state:JockeyState;save:(s:JockeyState)=>Promise<void>;fetcher?:typeof fetch;sleep?:(ms:number)=>Promise<void>;resolveHost?:ResolveHost}):Promise<MediaReview>{
  if(!opts.apiKey||!opts.freePlanConfirmed)throw Error('MEDIA_JOCKEY_FREE_PLAN_NOT_CONFIGURED');
  const source=mediaSource(opts.source,opts.parentUrl),s=opts.state;
  const host=new URL(source).hostname;
- if(!(host.endsWith('.my.canva.site')||host==='media-public.canva.com'||host.endsWith('.pages.dev')||host==='firebasestorage.googleapis.com'||host.endsWith('.tiktokcdn.com')||host.endsWith('.cdninstagram.com')||host.endsWith('.fbcdn.net')))throw Error('MEDIA_JOCKEY_DIRECT_SOURCE_REQUIRED');
+ const drive=host==='drive.google.com';
+ const direct=drive||host.endsWith('.my.canva.site')||host==='media-public.canva.com'||host.endsWith('.pages.dev')||host==='firebasestorage.googleapis.com'||host.endsWith('.tiktokcdn.com')||host.endsWith('.cdninstagram.com')||host.endsWith('.fbcdn.net');
+ if(!direct&&!await publicPortfolioMedia(source,opts.parentUrl,opts.resolveHost))throw Error('MEDIA_JOCKEY_DIRECT_SOURCE_REQUIRED');
  if(s.source!==source)throw Error('MEDIA_JOCKEY_SOURCE_MISMATCH');
  if(s.result)return s.result;
  if(!/^ks_[\w-]+$/.test(opts.storeId))throw Error('MEDIA_JOCKEY_STORE_INVALID');
@@ -27,10 +43,26 @@ export async function runJockeyReview(opts:{apiKey:string;freePlanConfirmed:bool
  const ready=async(path:string)=>{for(let i=0;i<12;i++){const d=await call(path);if(d.status==='ready')return;if(d.status==='failed')throw Error('MEDIA_JOCKEY_ASSET_FAILED');await wait(5000)}throw Error('MEDIA_JOCKEY_PROCESSING')};
  if(!s.assetId){
   if(s.uploadStarted)throw Error('MEDIA_JOCKEY_UPLOAD_UNCERTAIN');
-  if(!/\.(mp4|webm|mov)(?:\?|$)/i.test(source))throw Error('MEDIA_JOCKEY_DIRECT_SAMPLE_REQUIRED');
-  const media=await fetcher(source,{redirect:'error',signal:AbortSignal.timeout(15000)});const mime=media.headers.get('content-type')?.split(';')[0]||'';if(!media.ok||!mime.startsWith('video/'))throw Error('MEDIA_JOCKEY_SOURCE_UNAVAILABLE');
-  const bytes=await boundedVideoBytes(media.body);s.uploadStarted=true;await opts.save(s);
-  const form=new FormData();form.append('method','direct');form.append('file',new Blob([bytes],{type:mime}),'creator-sample.'+(mime.includes('webm')?'webm':mime.includes('mov')?'mov':'mp4'));
+  if(!drive&&!/\.(mp4|webm|mov)(?:\?|$)/i.test(source))throw Error('MEDIA_JOCKEY_DIRECT_SAMPLE_REQUIRED');
+  const form=new FormData();
+  if(!direct){
+   // The provider fetches a public, canonical portfolio file. The hub never fetches arbitrary hosts.
+   form.append('method','url');form.append('url',source);
+  }else{
+   let url=drive?'https://drive.usercontent.google.com/download?export=download&confirm=t&id='+encodeURIComponent(new URL(source).searchParams.get('id')!):source;
+   let media:Response|undefined;
+   for(let n=0;n<4;n++){
+    media=await fetcher(url,{redirect:'manual',signal:AbortSignal.timeout(15000)});
+    if(media.status<300||media.status>=400)break;
+    if(!drive)throw Error('MEDIA_JOCKEY_SOURCE_REDIRECT');
+    const next=new URL(media.headers.get('location')||'',url);
+    if(next.protocol!=='https:'||next.username||next.password||next.port||!(next.hostname==='drive.usercontent.google.com'||next.hostname.endsWith('.googleusercontent.com')))throw Error('MEDIA_JOCKEY_SOURCE_REDIRECT');url=next.href;
+   }
+   const mime=media?.headers.get('content-type')?.split(';')[0]||'';if(!media?.ok||!mime.startsWith('video/'))throw Error('MEDIA_JOCKEY_SOURCE_UNAVAILABLE');
+   const bytes=await boundedVideoBytes(media.body);
+   form.append('method','direct');form.append('file',new Blob([bytes],{type:mime}),'creator-sample.'+(mime.includes('webm')?'webm':mime.includes('mov')?'mov':'mp4'));
+  }
+  s.uploadStarted=true;await opts.save(s);
   const d=await call('assets',form);s.assetId=String(d._id||'');if(!s.assetId)throw Error('MEDIA_JOCKEY_ASSET_INVALID');await opts.save(s);
  }
  await ready('assets/'+s.assetId);

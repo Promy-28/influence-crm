@@ -4,6 +4,7 @@ import {runJockeyReview,type JockeyState} from '@/lib/jockey-review';
 import { db, requireSession } from "@/lib/db";
 import { analyzeMedia, mediaSource, qualityDecision, MediaReviewError, MEDIA_MODEL } from "@/lib/media-review";
 import { timingSafeEqual,createHash } from "node:crypto";
+import {mediaRetryAfter} from '@/lib/media-retry';
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 const configured = () => !!process.env.GEMINI_API_KEY && process.env.GEMINI_FREE_PROJECT_CONFIRMED === "true";
@@ -34,7 +35,9 @@ export async function POST(req: NextRequest) {
   let source = sources[0];
   if(!source&&external){const {data:pending}=await db.from('creator_media_reviews').select('source').eq('creator_id',creator.id).not('provider_file','is',null).order('started_at',{ascending:false}).limit(1).maybeSingle();if(pending?.source)source=pending.source;}
   if (!source) return NextResponse.json({ error: "MEDIA_LINK_NEEDS_VIDEO", nextStep: "Нужен доступный видеофайл или YouTube-ролик в recent_posts. Страница профиля не заменяет видео." }, { status: 409 });
-  const { data: saved } = await db.from('creator_media_reviews').select('provider_file').eq('creator_id',creator.id).eq('source',source).maybeSingle();
+  const { data: saved } = await db.from('creator_media_reviews').select('provider_file,status,error,finished_at').eq('creator_id',creator.id).eq('source',source).maybeSingle();
+  const retryAfterSeconds=mediaRetryAfter(saved);
+  if(retryAfterSeconds)return NextResponse.json({status:'deferred',deferred:true,error:saved?.error,source,retryAfterSeconds},{status:202});
   const { data: claim, error } = await db.rpc("claim_creator_media_review", { p_creator_id: creator.id, p_source: source });
   if (error) return NextResponse.json({ error: "MEDIA_QUEUE_NOT_READY" }, { status: 503 });
   if (!claim?.claimed) return NextResponse.json({ creatorId: creator.id, source, ...claim });
