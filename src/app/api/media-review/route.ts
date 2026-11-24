@@ -1,9 +1,10 @@
-import {environment,loadRecord} from '@/lib/promy-bot/store';
-import { NextRequest, NextResponse } from "next/server";
+import {environment,loadRecord,saveRecord} from '@/lib/promy-bot/store';
+import { NextRequest, NextResponse, after } from "next/server";
+import {runJockeyReview,type JockeyState} from '@/lib/jockey-review';
 import { db, requireSession } from "@/lib/db";
 import { analyzeMedia, mediaSource, qualityDecision, MediaReviewError, MEDIA_MODEL } from "@/lib/media-review";
-import { timingSafeEqual } from "node:crypto";
-export const maxDuration = 60;
+import { timingSafeEqual,createHash } from "node:crypto";
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 const configured = () => !!process.env.GEMINI_API_KEY && process.env.GEMINI_FREE_PROJECT_CONFIRMED === "true";
 async function authorize(req: NextRequest) {
@@ -49,7 +50,21 @@ export async function POST(req: NextRequest) {
     const code = e instanceof MediaReviewError ? e.code : "MEDIA_REVIEW_FAILED";
     await db.from("creator_media_reviews").update({ status: "failed", error: code, ...(e instanceof MediaReviewError&&e.providerFile?{provider_file:e.providerFile}:{}), finished_at: new Date().toISOString() }).eq("creator_id", creator.id).eq("source", source);
     if(code==='MEDIA_FILE_PROCESSING')return NextResponse.json({status:'processing',source,deferred:true},{status:202});
-    if(/MEDIA_PROVIDER_(503|502|504|UNAVAILABLE)/.test(code)||code==='MEDIA_FORMAT_UNAVAILABLE')return NextResponse.json({status:'deferred',error:code,source,deferred:true,retryAfterSeconds:300},{status:202});
+    if(/MEDIA_PROVIDER_(503|502|504|UNAVAILABLE)/.test(code)||code==='MEDIA_FORMAT_UNAVAILABLE'){
+      const env=environment(),control=await loadRecord(env,'_creator_browser_agent');
+      if(process.env.TWELVELABS_API_KEY&&process.env.TWELVELABS_FREE_PLAN_CONFIRMED==='true'&&control?.twelveVoice?.status==='completed'&&control?.twelveVoice?.storeId){
+        const recordId='_creator_voice_'+createHash('sha256').update(creator.id+'\n'+source).digest('hex').slice(0,32);
+        const state:JockeyState=await loadRecord(env,recordId)||{source,...(creator.id==='hub-33b8ab62652e566d'&&source==='https://maryfeeneyugc.my.canva.site/_assets/video/aa25d9a71029c586b16137866cd82bc7.mp4'?{assetId:control.twelveControl?.assetId,itemId:control.twelveVoice?.itemId}:{})};
+        await db.from('creator_media_reviews').update({status:'processing',error:null,result:{provider:'twelvelabs-jockey',status:'processing'}}).eq('creator_id',creator.id).eq('source',source);
+        after(async()=>{try{
+          const review=await runJockeyReview({apiKey:process.env.TWELVELABS_API_KEY!,freePlanConfirmed:true,source,parentUrl:external?input.parentUrl:undefined,storeId:control.twelveVoice.storeId,state,save:async value=>{await saveRecord(env,recordId,value)}});
+          const result={...review,qualityDecision:qualityDecision(review),commercialDecision:'not_evaluated',source,model:review.modelUsed,reviewedAt:new Date().toISOString()};
+          await db.from('creator_media_reviews').update({status:'completed',result,finished_at:new Date().toISOString(),error:null}).eq('creator_id',creator.id).eq('source',source);
+        }catch(error){const message=error instanceof Error?error.message:'';const safe=/^MEDIA_[A-Z_0-9]+$/.test(message)?message:'MEDIA_JOCKEY_DEFERRED';await db.from('creator_media_reviews').update({status:'failed',error:safe,finished_at:new Date().toISOString()}).eq('creator_id',creator.id).eq('source',source)}});
+        return NextResponse.json({status:'processing',source,deferred:true,provider:'twelvelabs-jockey'},{status:202});
+      }
+      return NextResponse.json({status:'deferred',error:code,source,deferred:true,retryAfterSeconds:300},{status:202});
+    }
     const blocked=['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO'].includes(code);
     return NextResponse.json({ error: code, source, deferred: code === "MEDIA_QUOTA_DEFERRED" }, { status: code === "MEDIA_QUOTA_DEFERRED" ? 429 : blocked?409:502 });
   }
