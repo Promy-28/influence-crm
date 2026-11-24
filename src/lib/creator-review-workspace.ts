@@ -39,3 +39,12 @@ export async function setBrowserAgent(input:any){
  else if(input.op==='agentReport'){const summary=String(input.summary||'').trim();if(!summary||summary.length>1500)throw Error('Нужен краткий итог запуска');Object.assign(current,{lastReport:summary,lastRunAt:new Date().toISOString()})}
  await saveRecord(env,'_creator_browser_agent',current);return current;
 }
+
+export async function mediaServiceDiagnostics(){
+ if(!process.env.GEMINI_API_KEY||process.env.GEMINI_FREE_PROJECT_CONFIRMED!=='true')throw Error('Free video service not configured');
+ const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',{headers:{'x-goog-api-key':process.env.GEMINI_API_KEY},cache:'no-store',signal:AbortSignal.timeout(15000)});
+ if(!r.ok)throw Error('MODEL_DISCOVERY_'+r.status);const d=await r.json();
+ const known=new Set(['gemini-3.5-flash-lite','gemini-3.1-flash-lite','gemini-2.5-flash-lite']);
+ const models=(d.models||[]).filter((m:any)=>known.has(String(m.name||'').replace('models/',''))).map((m:any)=>({name:m.name,methods:m.supportedGenerationMethods||[]}));
+ const env=environment(),state=await loadRecord(env,'_creator_browser_agent')||{enabled:false};state.diagnostics={at:new Date().toISOString(),models};await saveRecord(env,'_creator_browser_agent',state);return {models};
+}
