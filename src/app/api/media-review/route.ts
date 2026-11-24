@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   try {
     const health=await loadRecord(environment(),'_creator_browser_agent');
     const fallbackModel=['gemini-3.1-flash-lite','gemini-2.5-flash-lite'].find(name=>health?.diagnostics?.models?.some((m:any)=>m.name==='models/'+name&&m.http===200))||null;
-    const preferGenerateContent=health?.diagnostics?.models?.some((m:any)=>m.name==='models/'+MEDIA_MODEL&&m.http===200)===true;
+    const preferGenerateContent=true; // Real Mary audio/video control succeeded on this transport.
     const review = await analyzeMedia({fallbackModel,preferGenerateContent, apiKey: process.env.GEMINI_API_KEY!, freeProjectConfirmed: true, source, parentUrl:external?input.parentUrl:undefined, providerFile:saved?.provider_file });
     const result = { ...review, qualityDecision: qualityDecision(review), commercialDecision: "not_evaluated", source, model: review.modelUsed||MEDIA_MODEL, reviewedAt: new Date().toISOString() };
     await db.from("creator_media_reviews").update({ status: "completed", result, finished_at: new Date().toISOString(), error: null }).eq("creator_id", creator.id).eq("source", source);

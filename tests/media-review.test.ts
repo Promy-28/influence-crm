@@ -91,3 +91,9 @@ test('responsive generateContent route analyzes the real video directly without 
  let calls=0;const fetcher=(async(url,req)=>{calls++;assert.match(String(url),/models\/gemini-3.5-flash-lite:generateContent$/);const body=JSON.parse(String(req?.body));assert.equal(body.contents[0].parts[0].fileData.fileUri,sample);return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(result)}]}}]});}) as typeof fetch;
  const got=await analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:sample,preferGenerateContent:true,fetcher});assert.equal(got.audioReviewed,true);assert.equal(got.transportUsed,'generateContent');assert.equal(calls,1);
 });
+
+test('short uploaded video never requests an interval beyond its duration and uses default sampling parameters',async()=>{
+ const file={name:'files/short',uri:'https://generativelanguage.googleapis.com/v1beta/files/short',mimeType:'video/mp4',uploadedAt:new Date().toISOString()};
+ const fetcher=(async(url,req)=>{if(String(url).endsWith('/files/short'))return Response.json({state:'ACTIVE',videoMetadata:{videoDuration:'26.583s'}});const body=JSON.parse(String(req?.body));assert.equal(body.contents[0].parts[0].fileData.fileUri,file.uri);assert.equal(body.contents[0].parts[0].videoMetadata,undefined);assert.equal(body.generationConfig.temperature,undefined);assert.equal(body.generationConfig.responseMimeType,undefined);return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(result)}]}}]});}) as typeof fetch;
+ const got=await analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:'https://maryfeeneyugc.my.canva.site/_assets/video/example.mp4',providerFile:file,preferGenerateContent:true,fetcher});assert.equal(got.audioReviewed,true);
+});

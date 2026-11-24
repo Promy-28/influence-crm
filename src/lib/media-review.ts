@@ -77,7 +77,7 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
   // A model name cannot enforce zero billing: the key MUST belong to a verified unbilled project.
   if (!opts.freeProjectConfirmed) return fail("MEDIA_FREE_PROJECT_NOT_CONFIRMED");
   if (!opts.apiKey?.trim()) return fail("MEDIA_KEY_MISSING");
-  let uri = mediaSource(opts.source,opts.parentUrl);
+  let uri = mediaSource(opts.source,opts.parentUrl);let durationSeconds:number|null=null;
   let mimeType=/\.webm(?:\?|$)/i.test(uri)?'video/webm':/\.mov(?:\?|$)/i.test(uri)?'video/mov':'video/mp4';
   const fetcher = opts.fetcher ?? fetch;
   const initialHost=new URL(uri).hostname;
@@ -114,13 +114,18 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
     if(!status.ok)return fail('MEDIA_UPLOAD_UNAVAILABLE');
     const state=await status.json();if(state.state==='PROCESSING'){const pending=new MediaReviewError('MEDIA_FILE_PROCESSING');pending.providerFile=file;throw pending}
     if(state.state!=='ACTIVE')return fail('MEDIA_UPLOAD_UNAVAILABLE');
+    const duration=Number.parseFloat(String(state.videoMetadata?.videoDuration||''));
+    if(Number.isFinite(duration)&&duration>0)durationSeconds=duration;
     uri=file.uri;mimeType=file.mimeType;
   }
   const fallbackModel=opts.fallbackModel||null;if(fallbackModel&&!['gemini-2.5-flash-lite','gemini-3.1-flash-lite'].includes(fallbackModel))return fail('MEDIA_FALLBACK_MODEL_NOT_ALLOWED');
+  // Short ACTIVE files need no clipping metadata. Never ask for 60s beyond a 26s file.
+  // Keep the 60s cap for unknown/long sources; preserve the actual audio input.
+  const videoPart={fileData:{fileUri:uri,mimeType},...(durationSeconds!==null&&durationSeconds<=60?{}:{videoMetadata:{startOffset:'0s',endOffset:'60s',fps:1}})};
   let response: Response;const analysisStarted=Date.now();
   try {
     response=opts.preferGenerateContent?await fetcher('https://generativelanguage.googleapis.com/v1beta/models/'+MEDIA_MODEL+':generateContent',{
-      method:'POST',headers:{'x-goog-api-key':opts.apiKey,'content-type':'application/json'},body:JSON.stringify({contents:[{role:'user',parts:[{fileData:{fileUri:uri,mimeType},videoMetadata:{startOffset:'0s',endOffset:'60s',fps:1}},{text:MEDIA_RUBRIC}]}],generationConfig:{responseMimeType:'application/json',temperature:0.1,maxOutputTokens:2400}}),signal:AbortSignal.timeout(40000),cache:'no-store'
+      method:'POST',headers:{'x-goog-api-key':opts.apiKey,'content-type':'application/json'},body:JSON.stringify({contents:[{parts:[videoPart,{text:MEDIA_RUBRIC}]}],generationConfig:{maxOutputTokens:2400}}),signal:AbortSignal.timeout(40000),cache:'no-store'
     }):await fetcher('https://generativelanguage.googleapis.com/v1beta/interactions',{
       method:'POST',headers:{'x-goog-api-key':opts.apiKey,'content-type':'application/json','Api-Revision':'2026-05-20'},body:JSON.stringify({model:MEDIA_MODEL,store:false,input:[{type:'video',uri,mime_type:mimeType,processing:{type:'static',start_offset:'0s',end_offset:'60s',fps:1}},{type:'text',text:MEDIA_RUBRIC}]}),signal:AbortSignal.timeout(40000),cache:'no-store'
     });
@@ -131,7 +136,7 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
     const originalStatus=response.status;
     let alternate:Response;try{alternate=await fetcher('https://generativelanguage.googleapis.com/v1beta/models/'+fallbackModel+':generateContent',{
       method:'POST',headers:{'x-goog-api-key':opts.apiKey,'content-type':'application/json'},
-      body:JSON.stringify({contents:[{role:'user',parts:[{fileData:{fileUri:uri,mimeType},videoMetadata:{startOffset:'0s',endOffset:'60s',fps:1}},{text:MEDIA_RUBRIC}]}],generationConfig:{responseMimeType:'application/json',temperature:0.1,maxOutputTokens:2400}}),signal:AbortSignal.timeout(25000),cache:'no-store'
+      body:JSON.stringify({contents:[{parts:[videoPart,{text:MEDIA_RUBRIC}]}],generationConfig:{maxOutputTokens:2400}}),signal:AbortSignal.timeout(25000),cache:'no-store'
     })}catch{return fail('MEDIA_FALLBACK_UNAVAILABLE')}
     if(alternate.status===429)return fail('MEDIA_QUOTA_DEFERRED');
     if(!alternate.ok)return fail('MEDIA_PROVIDER_'+originalStatus+'_FALLBACK_'+alternate.status);
