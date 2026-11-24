@@ -1,3 +1,4 @@
+import {environment,loadRecord} from '@/lib/promy-bot/store';
 import { NextRequest, NextResponse } from "next/server";
 import { db, requireSession } from "@/lib/db";
 import { analyzeMedia, mediaSource, qualityDecision, MediaReviewError, MEDIA_MODEL } from "@/lib/media-review";
@@ -37,7 +38,9 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: "MEDIA_QUEUE_NOT_READY" }, { status: 503 });
   if (!claim?.claimed) return NextResponse.json({ creatorId: creator.id, source, ...claim });
   try {
-    const review = await analyzeMedia({ apiKey: process.env.GEMINI_API_KEY!, freeProjectConfirmed: true, source, parentUrl:external?input.parentUrl:undefined, providerFile:saved?.provider_file });
+    const health=await loadRecord(environment(),'_creator_browser_agent');
+    const fallbackModel=['gemini-3.1-flash-lite','gemini-2.5-flash-lite'].find(name=>health?.diagnostics?.models?.some((m:any)=>m.name==='models/'+name&&m.http===200))||null;
+    const review = await analyzeMedia({fallbackModel, apiKey: process.env.GEMINI_API_KEY!, freeProjectConfirmed: true, source, parentUrl:external?input.parentUrl:undefined, providerFile:saved?.provider_file });
     const result = { ...review, qualityDecision: qualityDecision(review), commercialDecision: "not_evaluated", source, model: review.modelUsed||MEDIA_MODEL, reviewedAt: new Date().toISOString() };
     await db.from("creator_media_reviews").update({ status: "completed", result, finished_at: new Date().toISOString(), error: null }).eq("creator_id", creator.id).eq("source", source);
     return NextResponse.json({ creatorId: creator.id, status: "completed", result });
