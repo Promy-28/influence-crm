@@ -1,8 +1,8 @@
 import './creator-progress.css';
 import {creatorProgress} from '@/lib/creator-progress';
-export default function CreatorProgress({rows,active}:{rows:any[],active?:string}){
- const s=creatorProgress(rows);
- const cards=[['all','Всего креаторов',s.total,'Вся база Reddit / формы','neutral'],['checked','Проверены агентом',s.checked,'Видео и звук проверены','purple'],['great','Зелёные',s.great,'Подходят по оценке агента','green'],['maybe','Жёлтые',s.maybe,'Есть вопросы, например по цене','yellow'],['no','Красные',s.no,'Не подходят по оценке агента','red'],['remaining','Осталось проверить',s.remaining,'Очередь + недоступные + без проверки','neutral']] as const;
+export default function CreatorProgress({rows=[],active,stats}:{rows?:any[],active?:string,stats?:any}){
+ const s=stats||creatorProgress(rows);
+ const cards=[['all','Всего креаторов',s.total,'Вся база Reddit / формы','neutral'],['checked','Проверены с видео и звуком',s.checked,'Видео и звук проверены','purple'],['great','Зелёные',s.great,'Подходят по сохранённой проверке','green'],['maybe','Жёлтые',s.maybe,'Есть вопросы, например по цене','yellow'],['no','Красные',s.no,'Не подходят по сохранённой проверке','red'],['remaining','Осталось проверить',s.remaining,'Очередь + недоступные + без проверки','neutral']] as const;
  return <section className="panel creator-progress" aria-label="Прогресс проверки креаторов"><div className="hub-heading"><div><h2>Как идёт проверка</h2><p className="muted">Вся база, а не только текущая страница. Нажми на число, чтобы открыть список.</p></div><b>{s.percent}% проверено</b></div>
  <div className="creator-progress-cards">{cards.map(([key,title,count,description,color])=><a className={'creator-stat '+color+(active===key?' selected':'')} href={'/creators?source=reddit'+(key==='all'?'':'&review='+key)} key={key} aria-current={active===key?'page':undefined}><span>{title}</span><strong>{count}</strong><small>{description}</small></a>)}</div>
  <div className="creator-progress-track" role="progressbar" aria-label="Завершённая проверка видео и звука" aria-valuenow={s.checked} aria-valuemin={0} aria-valuemax={s.total||1}>{(['great','maybe','no'] as const).map(k=><span className={k} key={k} style={{width:(s.total?s[k]/s.total*100:0)+'%'}}/>)}</div>

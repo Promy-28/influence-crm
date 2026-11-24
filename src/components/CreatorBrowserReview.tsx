@@ -1,0 +1,24 @@
+ 'use client';
+import {useState} from 'react';
+import {reviewRequest} from './CreatorReviewControl';
+export default function CreatorBrowserReview({initial}:{initial:any}){
+ const [data,setData]=useState(initial),[position,setPosition]=useState(0),[deferred,setDeferred]=useState<string[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
+ const rows=data.rows.filter((r:any)=>!['great','maybe','no'].includes(r.state)&&!deferred.includes(r.id)),c=rows[Math.min(position,Math.max(0,rows.length-1))];
+ const save=async(input:any)=>{setBusy(true);setError('');try{const r=await reviewRequest({op:'browser',id:c.id,updatedAt:c.updatedAt,...input},AbortSignal.timeout(55000));setData(r);setPosition(0);if(!r.result.completed)setDeferred(x=>[...x,c.id]);setNotice(r.result.completed?'Результат сохранён. Открыт следующий креатор.':'Помечено как недоступное. Не считается просмотренным. Открыт следующий.')}catch(e){setError(e instanceof Error?e.message:'Не удалось сохранить')}finally{setBusy(false)}};
+ return <div className="hub-stack"><header className="hub-heading"><div><h1>Проверка в браузере</h1><p className="sub">Портфолио и соцсети открываются в твоих вкладках. Смотри ролик со звуком, сохрани причину — переход к следующему автоматический.</p></div><a className="btn" href="/creators?source=reddit">К списку креаторов</a></header>
+ <section className="panel hub-section"><b>Проверено: {data.counts.checked} / {data.counts.total} · Осталось: {data.counts.remaining} · В этом списке: {rows.length}</b><progress style={{width:'100%',accentColor:'#643cff'}} value={data.counts.checked} max={data.counts.total||1} aria-label="Общий прогресс"/><p>Нет лимита 13 или 20 для браузерного просмотра. Никакие аккаунты и письма в Instantly не меняются.</p></section>
+ {notice&&<p className="okbox" role="status">{notice}</p>}{error&&<p className="note" role="alert">{error}</p>}
+ {c?<BrowserCard key={c.id} c={c} busy={busy} onSave={save} onSkip={()=>{setDeferred(x=>[...x,c.id]);setPosition(0)}}/>:<div className="panel hub-section"><h2>В этом проходе больше нет карточек</h2><p>Отложенные и недоступные не засчитаны как проверенные.</p><button className="btn" onClick={()=>{setDeferred([]);setPosition(0)}}>Вернуться к отложенным</button></div>}
+ </div>;
+}
+function BrowserCard({c,busy,onSave,onSkip}:{c:any;busy:boolean;onSave:(x:any)=>Promise<void>;onSkip:()=>void}){
+ const [url,setUrl]=useState(''),[reason,setReason]=useState(''),[video,setVideo]=useState(false),[audio,setAudio]=useState(false);
+ const complete=video&&audio&&reason.trim().length>=10&&!!url.trim();
+ return <section className="panel hub-section hub-stack"><h2>{c.name}</h2><p>{c.email} · Цена из формы: {c.price||'не указана'}</p><p>Твой предыдущий цвет: {c.ownerRating||'нет'} · {c.ownerReason||'Причина не записана'}</p>
+ <div className="row">{c.links.map((link:string,i:number)=><a key={link} className="btn" href={link} target="_blank" rel="noopener noreferrer">Открыть {i+1}: {new URL(link).hostname}</a>)}</div>{!c.links.length&&<p className="note">В карточке нет корректных ссылок. Отложи её или укажи найденный образец.</p>}
+ <details><summary>Почему облачная проверка не завершилась</summary><p>{c.reason||'Ещё нет результата проверки.'}</p></details>
+ <label className="hub-stack">Ссылка на фактически просмотренный образец<input type="url" className="in" value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://…"/></label>
+ <label className="check-row"><input type="checkbox" checked={video} onChange={e=>setVideo(e.target.checked)}/>Посмотрел видео: свет, кадр, монтаж и подача</label><label className="check-row"><input type="checkbox" checked={audio} onChange={e=>setAudio(e.target.checked)}/>Прослушал речь: язык и разборчивость</label>
+ <label className="hub-stack">Почему такой выбор? Английский, качество, цена<textarea className="in" rows={4} maxLength={1500} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Что увидел и услышал; цена оценивается отдельно. Тёмно-зелёный — сильное качество; высокая ставка может сделать кандидата жёлтым."/></label>
+ <div className="row">{[['great','🟢 Зелёный'],['maybe','🟡 Жёлтый'],['no','🔴 Красный']].map(([decision,label])=><button key={decision} className="btn-p" disabled={busy||!complete} onClick={()=>onSave({decision,url,reason,videoReviewed:video,audioReviewed:audio})}>{label} · сохранить и дальше</button>)}<button className="btn" disabled={busy||!url.trim()||reason.trim().length<10} onClick={()=>onSave({decision:'unverified',url,reason,videoReviewed:video,audioReviewed:audio})}>Не удалось проверить</button><button className="btn" disabled={busy} onClick={onSkip}>Отложить</button></div><p className="muted">Это твоя браузерная оценка, не результат Gemini. Без реального просмотра и звука цвет не сохраняется. Данные для обучения сохраняются; рассылка требует отдельного подтверждения.</p></section>;
+}

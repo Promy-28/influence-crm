@@ -1,8 +1,9 @@
 export function creatorReviewState(c:any):'great'|'maybe'|'no'|'queued'|'unverified'|'untouched'{
- const p=c.payload||{},a=p.assessment;
+ const p=c.payload||{},a=p.assessment,b=p.browserReview;
+ if(b?.completed&&b.videoReviewed===true&&b.audioReviewed===true&&['great','maybe','no'].includes(b.decision)&&b.sourceFingerprint===(p.sourceFingerprint||null))return b.decision;
  if(c.review_pending||p.reviewStatus==='pending_review'||(p.sourceFingerprint&&p.reviewSourceFingerprint!==p.sourceFingerprint))return 'queued';
  if(a?.videoReviewed===true&&a?.audioReviewed===true&&['great','maybe','no'].includes(a.decision))return a.decision;
- return a?'unverified':'untouched';
+ return a||b?'unverified':'untouched';
 }
 export function creatorProgress(rows:any[]){
  const counts={total:rows.length,checked:0,great:0,maybe:0,no:0,remaining:0,queued:0,unverified:0,untouched:0};

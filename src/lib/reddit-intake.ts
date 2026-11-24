@@ -15,7 +15,7 @@ export function parseForm(csv:string){
 }
 // Cloud snapshots may be older than a button-initiated Sheet sync. Keep canonical source fields.
 export function mergeDirectoryPayload(existing:any,incoming:any){
- const merged={...existing,...incoming};
+ const merged={...existing,...incoming};if(existing?.browserReview)merged.browserReview=existing.browserReview;
  if(existing?.sheetSnapshot){Object.assign(merged,existing.sheetSnapshot);merged.sheetSnapshot=existing.sheetSnapshot}
  if(merged.sourceFingerprint&&incoming?.reviewSourceFingerprint!==merged.sourceFingerprint)merged.reviewStatus='pending_review';
  return merged;
