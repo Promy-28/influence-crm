@@ -1,6 +1,8 @@
 // Server-callable core; no SDK, browser, scraping subscription or paid fallback.
 export const MEDIA_MODEL = "gemini-3.5-flash-lite";
+export const MEDIA_FALLBACK_MODEL = "gemini-2.5-flash-lite";
 export type MediaReview = {
+  modelUsed?:string; transportUsed?:string;
   videoReviewed: boolean; audioReviewed: boolean; englishSpeech: boolean | null;
   intelligibility: number | null; videoQuality: number | null; onCamera: boolean | null;
   speech: { second: number; quote: string }[];
@@ -114,13 +116,27 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
     if(state.state!=='ACTIVE')return fail('MEDIA_UPLOAD_UNAVAILABLE');
     uri=file.uri;mimeType=file.mimeType;
   }
-  let response: Response;
+  let response: Response;const analysisStarted=Date.now();
   try { response = await (opts.fetcher ?? fetch)("https://generativelanguage.googleapis.com/v1beta/interactions", {
     method: "POST", headers: { "x-goog-api-key": opts.apiKey, "Content-Type": "application/json", "Api-Revision": "2026-05-20" },
     body: JSON.stringify({ model: MEDIA_MODEL, store: false, input: [{ type: "video", uri, mime_type: mimeType, processing: { type: "static", start_offset: "0s", end_offset: "60s", fps: 1 } }, { type: "text", text: MEDIA_RUBRIC }] }),
     signal: AbortSignal.timeout(40000), cache: "no-store",
   }); } catch { return fail("MEDIA_PROVIDER_UNAVAILABLE"); }
   if (response.status === 429) return fail("MEDIA_QUOTA_DEFERRED");
+  if ([502,503,504].includes(response.status)&&Date.now()-analysisStarted<25000) {
+    // One bounded alternative on the SAME verified unbilled project. Never retry429.
+    const originalStatus=response.status;
+    let alternate:Response;try{alternate=await fetcher('https://generativelanguage.googleapis.com/v1beta/models/'+MEDIA_FALLBACK_MODEL+':generateContent',{
+      method:'POST',headers:{'x-goog-api-key':opts.apiKey,'content-type':'application/json'},
+      body:JSON.stringify({contents:[{role:'user',parts:[{fileData:{fileUri:uri,mimeType},videoMetadata:{startOffset:'0s',endOffset:'60s',fps:1}},{text:MEDIA_RUBRIC}]}],generationConfig:{responseMimeType:'application/json',temperature:0.1,maxOutputTokens:2400}}),signal:AbortSignal.timeout(25000),cache:'no-store'
+    })}catch{return fail('MEDIA_FALLBACK_UNAVAILABLE')}
+    if(alternate.status===429)return fail('MEDIA_QUOTA_DEFERRED');
+    if(!alternate.ok)return fail('MEDIA_PROVIDER_'+originalStatus+'_FALLBACK_'+alternate.status);
+    let data:any;try{data=await alternate.json()}catch{return fail('MEDIA_RESULT_INVALID')}
+    const raw=(data.candidates?.[0]?.content?.parts||[]).filter((p:any)=>typeof p.text==='string').map((p:any)=>p.text).join('').trim();
+    if(raw.length>16000)return fail('MEDIA_RESULT_INVALID');let parsed:any;try{parsed=JSON.parse(raw.replace(/^```json\s*/i,'').replace(/\s*```$/,''))}catch{return fail('MEDIA_RESULT_INVALID')}
+    return {...validateMediaReview(parsed),modelUsed:MEDIA_FALLBACK_MODEL,transportUsed:'generateContent'};
+  }
   if (!response.ok) return fail("MEDIA_PROVIDER_" + response.status);
   let data; try { data = await response.json(); } catch { return fail("MEDIA_RESULT_INVALID"); }
   const chunks = (data.output ?? data.steps?.flatMap((s: { content?: unknown[] }) => s.content ?? []) ?? []) as { type?: string; text?: string }[];

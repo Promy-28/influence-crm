@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   if (!claim?.claimed) return NextResponse.json({ creatorId: creator.id, source, ...claim });
   try {
     const review = await analyzeMedia({ apiKey: process.env.GEMINI_API_KEY!, freeProjectConfirmed: true, source, parentUrl:external?input.parentUrl:undefined, providerFile:saved?.provider_file });
-    const result = { ...review, qualityDecision: qualityDecision(review), commercialDecision: "not_evaluated", source, model: MEDIA_MODEL, reviewedAt: new Date().toISOString() };
+    const result = { ...review, qualityDecision: qualityDecision(review), commercialDecision: "not_evaluated", source, model: review.modelUsed||MEDIA_MODEL, reviewedAt: new Date().toISOString() };
     await db.from("creator_media_reviews").update({ status: "completed", result, finished_at: new Date().toISOString(), error: null }).eq("creator_id", creator.id).eq("source", source);
     return NextResponse.json({ creatorId: creator.id, status: "completed", result });
   } catch (e) {

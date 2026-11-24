@@ -76,3 +76,11 @@ test("uploaded Drive video uses real file input", async () => {
   }) as typeof fetch;
   assert.deepEqual(await analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:'https://drive.google.com/file/d/1234567890abcdef/view',providerFile:file,fetcher}),result);
 });
+
+test('503 switches once to the free alternate model API using the same actual video; never silently reports the old model',async()=>{
+ let calls=0;const fetcher=(async(url,req)=>{calls++;if(calls===1)return new Response('busy',{status:503});assert.equal(String(url),'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent');const body=JSON.parse(String(req?.body));assert.equal(body.contents[0].parts[0].fileData.fileUri,sample);assert.equal(body.contents[0].parts[0].videoMetadata.endOffset,'60s');return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(result)}]}}]});}) as typeof fetch;
+ const got=await analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:sample,fetcher});assert.equal(got.modelUsed,'gemini-2.5-flash-lite');assert.equal(got.audioReviewed,true);assert.equal(calls,2);
+});
+test('failed fallback preserves deferred error and cannot invent a review or try paid providers',async()=>{
+ let calls=0;await assert.rejects(analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:sample,fetcher:(async()=>{calls++;return new Response('busy',{status:503})}) as typeof fetch}),/MEDIA_PROVIDER_503_FALLBACK_503/);assert.equal(calls,2);
+});
