@@ -59,8 +59,15 @@ export async function runJockeyReview(opts:{apiKey:string;freePlanConfirmed:bool
     if(next.protocol!=='https:'||next.username||next.password||next.port||!(next.hostname==='drive.usercontent.google.com'||next.hostname.endsWith('.googleusercontent.com')))throw Error('MEDIA_JOCKEY_SOURCE_REDIRECT');url=next.href;
    }
    const mime=media?.headers.get('content-type')?.split(';')[0]||'';if(!media?.ok||!mime.startsWith('video/'))throw Error('MEDIA_JOCKEY_SOURCE_UNAVAILABLE');
-   const bytes=await boundedVideoBytes(media.body);
-   form.append('method','direct');form.append('file',new Blob([bytes],{type:mime}),'creator-sample.'+(mime.includes('webm')?'webm':mime.includes('mov')?'mov':'mp4'));
+   const size=Number(media.headers.get('content-length'));
+   if(drive&&size>32*1024*1024&&size<=200*1024*1024){
+    // Large public Drive examples bypass the hub's memory buffer. The URL has only
+    // passed fixed Google download hosts above; no cookies/authorization are forwarded.
+    await media.body?.cancel();form.append('method','url');form.append('url',url);
+   }else{
+    const bytes=await boundedVideoBytes(media.body);
+    form.append('method','direct');form.append('file',new Blob([bytes],{type:mime}),'creator-sample.'+(mime.includes('webm')?'webm':mime.includes('mov')?'mov':'mp4'));
+   }
   }
   s.uploadStarted=true;await opts.save(s);
   const d=await call('assets',form);s.assetId=String(d._id||'');if(!s.assetId)throw Error('MEDIA_JOCKEY_ASSET_INVALID');await opts.save(s);

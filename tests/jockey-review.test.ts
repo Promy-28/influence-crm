@@ -24,3 +24,10 @@ test('Drive public sample uses bounded server memory and rejects redirects outsi
  const source='https://drive.google.com/uc?export=download&id=1234567890';
  await assert.rejects(runJockeyReview({apiKey:'test',freePlanConfirmed:true,source,storeId:'ks_promy',state:{source},save:async()=>{},fetcher:(async()=>new Response(null,{status:302,headers:{location:'https://private.example/video.mp4'}})) as typeof fetch}),/SOURCE_REDIRECT/);
 });
+test('large public Drive file uses provider URL import rather than exceeding server memory',async()=>{
+ const source='https://drive.google.com/uc?export=download&id=1234567890';let fetchedMedia=0;
+ const fetcher=(async(url,req)=>{if(String(url).startsWith('https://drive.usercontent.google.com/')){fetchedMedia++;return new Response(new Uint8Array([1]),{headers:{'content-type':'video/mp4','content-length':String(99*1024*1024)}})}
+  if(String(url).endsWith('/assets')){assert.equal((req?.body as FormData).get('method'),'url');assert.match(String((req?.body as FormData).get('url')),/^https:\/\/drive\.usercontent\.google\.com\/download\?/);return Response.json({_id:'asset_p'})}
+  if(req?.method==='GET')return Response.json({status:'ready'});if(String(url).endsWith('/items'))return Response.json({_id:'ksi_mary'});return Response.json(response())}) as typeof fetch;
+ assert.equal((await runJockeyReview({apiKey:'test',freePlanConfirmed:true,source,storeId:'ks_promy',state:{source},save:async()=>{},fetcher})).audioReviewed,true);assert.equal(fetchedMedia,1);
+});
