@@ -45,6 +45,9 @@ export async function mediaServiceDiagnostics(){
  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',{headers:{'x-goog-api-key':process.env.GEMINI_API_KEY},cache:'no-store',signal:AbortSignal.timeout(15000)});
  if(!r.ok)throw Error('MODEL_DISCOVERY_'+r.status);const d=await r.json();
  const known=new Set(['gemini-3.5-flash-lite','gemini-3.1-flash-lite','gemini-2.5-flash-lite']);
- const models=(d.models||[]).filter((m:any)=>known.has(String(m.name||'').replace('models/',''))).map((m:any)=>({name:m.name,methods:m.supportedGenerationMethods||[]}));
+ const models=await Promise.all((d.models||[]).filter((m:any)=>known.has(String(m.name||'').replace('models/',''))).map(async(m:any)=>{
+ const result:any={name:m.name,methods:m.supportedGenerationMethods||[]};
+ try{const probe=await fetch('https://generativelanguage.googleapis.com/v1beta/'+m.name+':generateContent',{method:'POST',headers:{'x-goog-api-key':process.env.GEMINI_API_KEY!,'content-type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:'Reply exactly OK.'}]}],generationConfig:{maxOutputTokens:16}}),signal:AbortSignal.timeout(15000),cache:'no-store'});const body=await probe.json().catch(()=>({}));result.http=probe.status;result.rpcStatus=body.error?.status||null;const msg=String(body.error?.message||'');result.errorKind=!msg?null:/model/i.test(msg)?'model_unavailable':/file/i.test(msg)?'file_unavailable':/quota|exhaust/i.test(msg)?'quota':/demand|overload|unavailable/i.test(msg)?'service_unavailable':'other';}catch{result.http=null;result.errorKind='network_timeout'}return result;
+ }));
  const env=environment(),state=await loadRecord(env,'_creator_browser_agent')||{enabled:false};state.diagnostics={at:new Date().toISOString(),models};await saveRecord(env,'_creator_browser_agent',state);return {models};
 }
