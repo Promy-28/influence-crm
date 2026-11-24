@@ -51,3 +51,15 @@ export async function mediaServiceDiagnostics(){
  }));
  const env=environment(),state=await loadRecord(env,'_creator_browser_agent')||{enabled:false};state.diagnostics={at:new Date().toISOString(),models};await saveRecord(env,'_creator_browser_agent',state);return {models};
 }
+
+// Owner-only, bounded real-media control: same uploaded sample/key/model, minimal request.
+// No source file or credential is returned; a text probe cannot prove audio support.
+export async function mediaSampleDiagnostic(){
+ if(!process.env.GEMINI_API_KEY||process.env.GEMINI_FREE_PROJECT_CONFIRMED!=='true')throw Error('Free video service not configured');
+ const {data:row}=await db.from('creator_media_reviews').select('provider_file').eq('creator_id','hub-33b8ab62652e566d').not('provider_file','is',null).order('started_at',{ascending:false}).limit(1).maybeSingle();
+ const f=row?.provider_file;if(!f?.uri?.startsWith('https://generativelanguage.googleapis.com/'))throw Error('Cached Mary sample missing');
+ const started=Date.now();const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent',{method:'POST',headers:{'x-goog-api-key':process.env.GEMINI_API_KEY,'content-type':'application/json'},body:JSON.stringify({contents:[{parts:[{fileData:{fileUri:f.uri,mimeType:f.mimeType}},{text:'Listen to the actual audio and inspect the video. Quote the first 15 spoken words exactly, with approximate timestamps. Describe vocal pace, clarity, energy, pauses and background noise with concrete audible evidence. Separately describe the visible framing. If audio is unavailable say so; never infer speech from captions. Answer in Russian, keeping quoted speech in its original language.'}]}],generationConfig:{maxOutputTokens:1800}}),signal:AbortSignal.timeout(40000),cache:'no-store'});
+ const d=await r.json().catch(()=>({}));const clean=(v:unknown)=>String(v||'').replace(/https?:\/\/\S+/g,'[url]').replace(/AIza[\w-]+/g,'[redacted]').slice(0,6000);
+ const result={at:new Date().toISOString(),test:'same_real_video_minimal_request',model:'gemini-3.5-flash-lite',http:r.status,rpcStatus:d.error?.status||null,message:clean(d.error?.message),elapsedMs:Date.now()-started,text:r.ok?clean((d.candidates?.[0]?.content?.parts||[]).map((p:any)=>p.text||'').join('')):''};
+ const env=environment(),state=await loadRecord(env,'_creator_browser_agent')||{enabled:false};state.mediaControl=result;await saveRecord(env,'_creator_browser_agent',state);return result;
+}
