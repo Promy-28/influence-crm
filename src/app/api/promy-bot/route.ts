@@ -9,6 +9,7 @@ import {queueAutomaticMail} from '@/lib/auto-mail';
 import {syncBranding} from '@/lib/branding-sync';
 import {reconcileCreatorImports} from '@/lib/creator-import-server';
 import {after} from 'next/server';
+import {settlesCreatorRequest} from '@/lib/creator-progress';
 import {NextResponse} from 'next/server';
 import {db} from '@/lib/db';
 import {adminAuthorized,sharedId,environment,loadRecord,saveRecord,telegram,webhookSecret} from '@/lib/promy-bot/store';
@@ -35,11 +36,11 @@ export async function POST(req:Request){
   if(b.op==='directorySync'){
    if(!Array.isArray(b.records)||b.records.length>1000)throw Error('Invalid directory');
    const rows=b.records.map((r:any)=>{if(!/^[a-f0-9]{16}$/.test(r.id)||typeof r.email!=='string'||!r.payload)throw Error('Invalid creator');return {id:r.id,email:r.email.toLowerCase(),payload:r.payload,updated_at:new Date().toISOString()}});
-   const {data:previous}=await db.from('reddit_creator_directory').select('id,email,payload,updated_at').limit(1000);
+   const {data:previous}=await db.from('reddit_creator_directory').select('id,email,payload,updated_at,review_pending,review_requested_at').limit(1000);
    const byEmail=new Map((previous||[]).map((r:any)=>[r.email,r]));
-   for(const row of rows){const existing:any=byEmail.get(row.email);row.payload=mergeDirectoryPayload(existing?.payload,row.payload);
+   for(const row of rows){const existing:any=byEmail.get(row.email),settled=settlesCreatorRequest(existing,row.payload);row.payload=mergeDirectoryPayload(existing?.payload,row.payload);
     if(!existing)await db.from('reddit_creator_directory').insert(row);
-    else if(JSON.stringify(existing.payload)!==JSON.stringify(row.payload))await db.from('reddit_creator_directory').update({payload:row.payload,updated_at:row.updated_at}).eq('id',existing.id).eq('updated_at',existing.updated_at);
+    else if(settled||JSON.stringify(existing.payload)!==JSON.stringify(row.payload))await db.from('reddit_creator_directory').update({payload:row.payload,updated_at:row.updated_at,...(settled?{review_pending:false}:{})}).eq('id',existing.id).eq('updated_at',existing.updated_at);
    }
    if(b.status)await saveRecord(env,'_creator_agent_status',b.status);
    return NextResponse.json({synced:rows.length});

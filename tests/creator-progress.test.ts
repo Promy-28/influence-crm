@@ -13,3 +13,13 @@ test('stale source snapshots, pending cloud reviews and partial audio never infl
  assert.equal(creatorReviewState({payload:{assessment:{decision:'great',videoReviewed:true,audioReviewed:false}}}),'unverified');
  assert.equal(creatorProgress([]).percent,0);
 });
+import {settlesCreatorRequest} from '../src/lib/creator-progress.ts';
+
+test('new completed evidence settles queued request; earlier or changed-source reviews never do',()=>{
+ const existing={review_pending:true,review_requested_at:'2026-11-24T18:30:00Z',payload:{sourceFingerprint:'current'}};
+ const incoming={reviewStatus:'awaiting_owner',reviewSourceFingerprint:'current',assessment:{at:'2026-11-24T18:35:00Z',decision:'maybe',videoReviewed:true,audioReviewed:true}};
+ assert.equal(settlesCreatorRequest(existing,incoming),true);
+ assert.equal(settlesCreatorRequest(existing,{...incoming,reviewSourceFingerprint:'old'}),false);
+ assert.equal(settlesCreatorRequest(existing,{...incoming,assessment:{...incoming.assessment,at:'2026-11-24T18:00:00Z'}}),false);
+ assert.equal(settlesCreatorRequest(existing,{...incoming,assessment:{...incoming.assessment,audioReviewed:false}}),false);
+});

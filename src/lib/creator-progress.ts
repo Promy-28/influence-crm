@@ -12,3 +12,12 @@ export function creatorProgress(rows:any[]){
  counts.checked=counts.great+counts.maybe+counts.no;counts.remaining=counts.total-counts.checked;
  return {...counts,owner,percent:counts.total?Math.round(counts.checked/counts.total*100):0};
 }
+// A newer completed assessment settles its queued request; an older/cloud-stale one cannot.
+export function settlesCreatorRequest(existing:any,incoming:any){
+ const a=incoming?.assessment;
+ if(!existing?.review_pending||incoming?.reviewStatus==='pending_review'||!a?.videoReviewed||!a?.audioReviewed||!['great','maybe','no'].includes(a.decision))return false;
+ const fingerprint=existing.payload?.sourceFingerprint;
+ if(fingerprint&&incoming.reviewSourceFingerprint!==fingerprint)return false;
+ const assessed=Date.parse(a.at||''),requested=Date.parse(existing.review_requested_at||'');
+ return Number.isFinite(assessed)&&Number.isFinite(requested)&&assessed>=requested;
+}
