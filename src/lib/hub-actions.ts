@@ -9,15 +9,14 @@ import {processOwnerUpdate} from './promy-bot/owner-update';
 import {parseCsv} from './text';
 import {createHash} from 'node:crypto';
 import {validApproval} from './hub-outreach';
-import {assertNewOutreach} from './outreach-protection';
-import {localOutreachProtection} from './outreach-protection-server';
 import {reviewFingerprint,validFormEmail} from './reddit-intake';
 import {syncRedditForm} from './reddit-form-sync';
 import {validDraftApproval,readyDraft} from './draft-approval';
 import {renderReplyMacro} from './promy-bot/reply-macro';
-import {creatorImportProvider,reconcileCreatorImports} from './creator-import-server';
-import {submitCreatorImport,importMessage} from './creator-import';
+import {addApprovedCreator} from './creator-import-server';
 import {after} from 'next/server';
+import {APPROVED_QUEUE,processApprovedCreatorQueue} from './creator-import-queue-server';
+import {queuedApprovalProof,type ApprovedCreator} from './creator-import-queue';
 const runtime=(env:ReturnType<typeof environment>):any=>createAgentRuntime({env,loadRecord,saveRecord,telegram,api,campaigns});
 const go=(path:string,msg:string):never=>redirect(path+(path.includes('?')?'&':'?')+'msg='+encodeURIComponent(msg));
 export async function checkRedditForm(){
@@ -71,43 +70,26 @@ export async function importRedditCreators(f:FormData){
  }
  await log('reddit_import',`Добавлено ${added}, уже были ${known}. Рассылка не запускалась.`);revalidatePath('/creators');go('/creators?source=reddit',`Добавлено ${added}, уже были ${known}. Теперь выбери креаторов для проверки.`);
 }
-async function addApprovedCreator(id:string,campaign:string,at:string,token:string,who:string,fingerprint=''){
- const {data:c}=await db.from('reddit_creator_directory').select('*').eq('id',id).single();if(!c||!validApproval(id,c.email,campaign,at,token,fingerprint)||!!fingerprint&&reviewFingerprint(c)!==fingerprint)return ('Подтверждение устарело. Выбери кампанию заново.');
- if(!validFormEmail(c.email))return 'Исправь email перед добавлением. Адрес не исправляется автоматически.';
- const {data:protectedContacts,error:protectionError}=await db.from('creators').select('do_not_contact,unsubscribed_at,bounced_at').ilike('email',c.email);
- if(protectionError)throw Error('Не удалось проверить запреты контакта');
- if(protectedContacts?.some((contact:any)=>contact.do_not_contact||contact.unsubscribed_at||contact.bounced_at))return ('Контакт защищён от рассылки: исторический импорт, отписка или недоставка. Ограничение сохранено.');
- if(c.outreach_state?.status&&!['permission_required','rejected'].includes(c.outreach_state.status))return ('По этому контакту уже был запрос добавления. Хаб сверяет результат без повторной загрузки.');
- const provider=await creatorImportProvider();
- try{await assertNewOutreach(c.email,provider,()=>localOutreachProtection(c.email));}catch(e){return e instanceof Error?e.message:'Проверка истории не завершена. Ничего не добавлено.';}
- const current=await provider('/campaigns/'+encodeURIComponent(campaign));if(current.id!==campaign)throw Error('Неверная кампания');
- // Atomic claim: two clicks cannot produce two imports, including after an uncertain response.
- let claim=db.from('reddit_creator_directory').update({outreach_state:{status:'importing',campaign,at:new Date().toISOString()}}).eq('id',id).eq('updated_at',c.updated_at);
- claim=c.outreach_state?.status?claim.eq('outreach_state->>status',c.outreach_state.status):claim.is('outreach_state',null);
- const {data:claimed}=await claim.select('id');
- if(!claimed?.length)return ('Добавление уже выполнялось. Автоповтор отключён.');
- const result=await submitCreatorImport(c.email,c.payload.name||c.payload.reddit||'',campaign,provider);
- const {error:saveError}=await db.from('reddit_creator_directory').update({outreach_state:{...result,campaign,at:new Date().toISOString()}}).eq('id',id).eq('outreach_state->>status','importing');
- const msg=saveError?'Запрос выполнен; сохранение результата требует автоматической сверки. Повторная загрузка отключена.':importMessage(result);
- await log('reddit_campaign_request',msg,null,{email:c.email,campaign},who);return msg;
-}
 
 export async function sendRedditToCampaign(f:FormData){
  const who=await requireSession();const msg=await addApprovedCreator(String(f.get('id')||''),String(f.get('campaign')||''),String(f.get('at')||''),String(f.get('token')||''),who);
  revalidatePath('/creators');go('/creators?source=reddit',msg);
 }
 export async function sendRedditBatch(f:FormData){
- const who=await requireSession();const selected=[...new Set(f.getAll('selected').map(String))];
- if(!selected.length||selected.length>20)throw Error('Выбери от 1 до 20 подтверждённых креаторов');
+ const who=await requireSession(),selected=[...new Set(f.getAll('selected').map(String))];
+ if(!selected.length||selected.length>1000||selected.some(id=>!/^[a-f0-9]{16}$/.test(id)))throw Error('Выбери проверенных креаторов');
  if(f.get('confirm')!=='yes')throw Error('Нужно подтвердить запуск писем активной кампании');
- const results:{id:string,message:string}[]=[];
- for(const id of selected){
-  if(!/^[a-f0-9]{16}$/.test(id))throw Error('Неверный ID');
-  if(!/^[a-f0-9]{64}$/.test(String(f.get('fingerprint:'+id)||'')))throw Error('Нужна свежая проверка карточки');
-  try{const message=await addApprovedCreator(id,String(f.get('campaign:'+id)||''),String(f.get('at')||''),String(f.get('token:'+id)||''),who,String(f.get('fingerprint:'+id)||''));results.push({id,message})}
-  catch{results.push({id,message:'Ошибка до подтверждения результата. Проверь статус; автоматического повтора нет.'})}
- }
- await saveRecord(environment(),'_reddit_batch_result',{at:new Date().toISOString(),results});
- after(async()=>{try{await reconcileCreatorImports()}catch{/* Durable importing/accepted rows remain protected for the hourly readback. */}});
- revalidatePath('/creators');go('/creators/reddit-approval?source=reddit','Пачка обработана. Результаты ниже. Повторные добавления отключены.');
+ const {data:rows,error}=await db.from('reddit_creator_directory').select('*').in('id',selected);
+ if(error||rows?.length!==selected.length)throw Error('Не удалось сверить все карточки');
+ const additions:ApprovedCreator[]=rows.map(c=>{
+  const campaign=String(f.get('campaign:'+c.id)||''),fingerprint=String(f.get('fingerprint:'+c.id)||'');
+  if(c.review_pending||c.payload.reviewStatus==='pending_review'||!fingerprint||reviewFingerprint(c)!==fingerprint||!validApproval(c.id,c.email,campaign,String(f.get('at')||''),String(f.get('token:'+c.id)||''),fingerprint))throw Error('Карточка изменилась. Обнови список перед подтверждением.');
+  const j:ApprovedCreator={id:c.id,email:c.email,campaign,fingerprint,approvedAt:new Date().toISOString(),approvedBy:who,proof:'',status:'pending'};
+  j.proof=queuedApprovalProof(j,process.env.SESSION_SECRET!);return j;
+ });
+ const env=environment(),q=await loadRecord(env,APPROVED_QUEUE)||{items:[]};
+ for(const j of additions){if(q.items.some((x:ApprovedCreator)=>x.id===j.id&&['pending','processing','uncertain'].includes(x.status)))continue;q.items=q.items.filter((x:ApprovedCreator)=>x.id!==j.id);q.items.push(j)}
+ await saveRecord(env,APPROVED_QUEUE,q);
+ after(async()=>{try{await processApprovedCreatorQueue()}catch{/* Durable queue continues hourly. */}});
+ revalidatePath('/creators');go('/creators/reddit-approval?source=reddit','Выбранные сохранены в очереди автоматической загрузки. Повторное подтверждение каждой части не требуется.');
 }

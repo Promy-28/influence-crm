@@ -17,3 +17,9 @@ The approval page allows 300 seconds for a batch of up to 20 rather than the old
 ## Verification
 
 Fixture tests cover successful membership readback, explicit 403, lost responses with successful writes, cross-campaign mismatches, readback failure and no automatic re-upload. Production acceptance must check real provider membership; unit tests never send mail or add real contacts. Reconcile the seven November 24 owner-approved contacts without another write before testing a newly approved batch.
+
+
+## One confirmation for the accumulated ready list — 2026-11-24
+The approval page lists all ready cards, with Select all. Submission validates every recent signed card before saving a frozen, signed per-contact approval in the encrypted `_reddit_approved_import_queue` record. It does not authorize later arrivals or edits. The server processes at most20 entries per invocation; background work starts after approval and resumes on existing hourly directoryWork calls or a subsequent approval-page visit. Browser need not remain open for approved imports. Existing suppression, conversation-history, fingerprint, atomic import claim and exact campaign readback remain mandatory. Processing/uncertain jobs never blindly repeat a write. No schema, auth, provider subscription or credential changes.
+Rollback: revert queue-specific files and the approval page/action change. Existing import readback protections must remain; do not delete durable approval/import outcomes.
+Validation: fixture tests cover frozen approval across worker delay, edited review/recipient/campaign/owner substitution, signature mismatch; existing import tests cover lost responses and uncertain writes. Live queue import is intentionally not exercised without a newly confirmed concrete recipient list.
