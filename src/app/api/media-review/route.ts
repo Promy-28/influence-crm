@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({status:'deferred',error:code,source,deferred:true,retryAfterSeconds:300},{status:202});
     }
-    const blocked=['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO'].includes(code);
+    const blocked=['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_SOCIAL_VIDEO_UNAVAILABLE','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO'].includes(code);
     return NextResponse.json({ error: code, source, deferred: code === "MEDIA_QUOTA_DEFERRED" }, { status: code === "MEDIA_QUOTA_DEFERRED" ? 429 : blocked?409:502 });
   }
 }

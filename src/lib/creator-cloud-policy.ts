@@ -1,4 +1,47 @@
 export function portfolioLinks(value:string){return [...new Set((String(value||'').match(/https?:\/\/[^\s<>"']+/g)||[]).map(s=>s.replace(/[),.;]+$/,'')))].slice(0,8)}
+export function socialPlatform(host: string) {
+ if (['instagram.com', 'www.instagram.com'].includes(host)) return 'instagram';
+ if (['tiktok.com', 'www.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com'].includes(host)) return 'tiktok';
+}
+
+export function publicSocialPosts(html: string, profile: string) {
+ const parent = new URL(profile);
+ const platform = socialPlatform(parent.hostname);
+ const account = parent.pathname.match(platform === 'tiktok' ? /^\/@([\w.-]+)\/?$/ : /^\/([\w.]+)\/?$/)?.[1];
+ if (!platform || !account) return [];
+ const posts = new Set<string>();
+ for (const match of html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)) {
+  let url: URL;
+  try { url = new URL(match[1], parent); } catch { continue; }
+  if (url.protocol !== 'https:' || url.username || url.password || url.port || socialPlatform(url.hostname) !== platform) continue;
+  // Instagram profile HTML can contain recommendations with no author binding.
+  // Only accept links whose path identifies the submitted account.
+  const post = platform === 'tiktok'
+   ? url.pathname.match(/^\/@([\w.-]+)\/video\/(\d+)\/?$/)
+   : url.pathname.match(/^\/([\w.]+)\/(?:reel|p)\/([\w-]+)\/?$/);
+  if (post?.[1].toLowerCase() === account.toLowerCase()) posts.add(url.origin + url.pathname);
+  if (posts.size === 2) break;
+ }
+ return [...posts];
+}
+
+export function socialPostMedia(html: string, page: string) {
+ const url = new URL(page);
+ const platform = socialPlatform(url.hostname);
+ if (platform === 'tiktok' ? !/^\/@[\w.-]+\/video\/\d+\/?$/.test(url.pathname)
+  : platform !== 'instagram' || !/^\/(?:[\w.]+\/)?(?:p|reel|tv)\/[\w-]+\/?$/.test(url.pathname)) return [];
+ const sources = new Set<string>();
+ for (const match of html.matchAll(/<meta\s[^>]*>/gi)) {
+  const attrs = new Map([...match[0].matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g)].map((m) => [m[1].toLowerCase(), m[3]]));
+  if (!/^og:video(?::(?:url|secure_url))?$/.test(attrs.get('property') || '')) continue;
+  try {
+   const source = new URL((attrs.get('content') || '').replace(/&amp;/g, '&'));
+   const suffixes = platform === 'instagram' ? ['.cdninstagram.com', '.fbcdn.net'] : ['.tiktokcdn.com'];
+   if (suffixes.some(suffix => source.hostname.endsWith(suffix))) sources.add(source.href);
+  } catch { continue; }
+ }
+ return [...sources];
+}
 export function embeddedMedia(html:string,base:string){
  const text=html.replace(/\\u002[fF]/g,'/').replace(/\\\//g,'/').replace(/&amp;/g,'&');
  const urls=[...text.matchAll(/(?:https:\/\/[^\s"'<>\\]+|\/_assets\/[^\s"'<>\\]+)\.(?:mp4|mov|webm)(?:\?[^\s"'<>\\]*)?/gi)].map(m=>new URL(m[0],base).href);

@@ -2,7 +2,7 @@ import 'server-only';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import {db} from './db';
 import {creatorReviewState} from './creator-progress';
-import {portfolioLinks,embeddedMedia,cloudAssessment} from './creator-cloud-policy';
+import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia} from './creator-cloud-policy';
 import {mediaSource} from './media-review';
 import {publicPortfolioMedia} from './jockey-review';
 import {POST as analyze} from '@/app/api/media-review/route';
@@ -34,14 +34,25 @@ export async function configureCloudQueue(mode:'day'|'continuous'|'pause'){
 async function portfolioHtml(url:string){
  let current=url;
  for(let redirects=0;redirects<3;redirects++){
+  const from=new URL(current);
+  if(from.protocol!=='https:'||from.username||from.password||from.port)throw Error('PORTFOLIO_NOT_PUBLIC');
   if(!await publicPortfolioMedia(current,current))throw Error('PORTFOLIO_NOT_PUBLIC');
-  const r=await fetch(current,{redirect:'manual',signal:AbortSignal.timeout(12000),headers:{accept:'text/html'},cache:'no-store'});
-  if(r.status>=300&&r.status<400){const next=new URL(r.headers.get('location')||'',current);if(!['canva.link','www.canva.com','canva.com'].includes(new URL(current).hostname)||!['www.canva.com','canva.com'].includes(next.hostname))throw Error('PORTFOLIO_REDIRECT_REQUIRES_BROWSER');current=next.href;continue}
+  const r=await fetch(current,{redirect:'manual',signal:AbortSignal.timeout(5000),headers:{accept:'text/html'},cache:'no-store'});
+  if(r.status>=300&&r.status<400){
+   const next=new URL(r.headers.get('location')||'',current);
+   await r.body?.cancel();
+   const canvaRedirect=['canva.link','www.canva.com','canva.com'].includes(from.hostname)&&['www.canva.com','canva.com'].includes(next.hostname);
+   const sameHost=from.hostname.replace(/^www\./,'')===next.hostname.replace(/^www\./,'');
+   const socialRedirect=socialPlatform(from.hostname)&&socialPlatform(from.hostname)===socialPlatform(next.hostname);
+   if(!canvaRedirect&&!sameHost&&!socialRedirect)throw Error('PORTFOLIO_REDIRECT_REQUIRES_BROWSER');
+   current=next.href;
+   continue;
+  }
   if(!r.ok)throw Error('PORTFOLIO_HTTP_'+r.status);
   if(!/text\/html/.test(r.headers.get('content-type')||''))throw Error('PORTFOLIO_HTML_REQUIRED');
   const reader=r.body?.getReader();if(!reader)throw Error('PORTFOLIO_EMPTY');let size=0,text='';const decoder=new TextDecoder();
   try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>2000000)break;text+=decoder.decode(value,{stream:true})}}finally{await reader.cancel()}
-  return embeddedMedia(text,current);
+  return {html:text,url:current};
  }throw Error('PORTFOLIO_REDIRECT_LIMIT');
 }
 async function discover(c:any,j:any){
@@ -52,10 +63,33 @@ async function discover(c:any,j:any){
  const ordered=[...(cached||[])].sort((a:any,b:any)=>Number(!!b.result?.audioReviewed&&b.result?.englishSpeech===true)-Number(!!a.result?.audioReviewed&&a.result?.englishSpeech===true));
  for(const x of ordered){const parent=links.find(p=>{try{return new URL(p).hostname===new URL(x.source).hostname||(['canva.link','www.canva.com'].includes(new URL(p).hostname)&&new URL(x.source).hostname==='media.canva.com')}catch{return false}});if(parent&&!j.samples.includes(x.source))return {source:x.source,parentUrl:parent}}
  for(const p of links){try{const source=mediaSource(p,p);if(!j.samples.includes(source))return {source,parentUrl:p}}catch{}}
- let discoveryError='PUBLIC_PORTFOLIO_MEDIA_UNAVAILABLE';
- for(const p of links.slice(0,3)){
-  if(/(?:instagram|tiktok|photos\.icloud)\.com/.test(new URL(p).hostname))continue;
-  try{const media=await portfolioHtml(p);for(const source of media)if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch{}
+ const findSample=(candidates:string[],parentUrl:string)=>{
+  for(const candidate of candidates){
+   try {const source=mediaSource(candidate,parentUrl);if(!j.samples.includes(source))return {source,parentUrl};} catch { /* Try the next candidate. */ }
+  }
+ };
+ let discoveryError=links.length?'NO_PUBLIC_VIDEO_DISCOVERED':'NO_CREATOR_VIDEO_LINK';
+ for(const p of links){
+  try{
+   const {html,url}=await portfolioHtml(p);
+   const platform=socialPlatform(new URL(url).hostname);
+   const sample=findSample(platform?socialPostMedia(html,url):embeddedMedia(html,url),p);
+   if(sample)return sample;
+   for(const post of publicSocialPosts(html,url)){
+    try{
+     const page=await portfolioHtml(post);
+     if(new URL(page.url).pathname.replace(/\/$/,'')!==new URL(post).pathname.replace(/\/$/,''))continue;
+     const sample=findSample(socialPostMedia(page.html,page.url),p);
+     if(sample)return sample;
+    }catch{ /* Other creator links may still be playable. */ }
+   }
+   if(platform&&discoveryError==='NO_PUBLIC_VIDEO_DISCOVERED')discoveryError='SOCIAL_VIDEO_SOURCE_REQUIRED';
+  }catch(e){
+   const code=e instanceof Error?e.message:'';
+   if(/^PORTFOLIO_HTTP_(401|403|429)$/.test(code))discoveryError=code;
+  }
+ }
+ for(const p of links.filter(p=>['canva.link','canva.com','www.canva.com'].includes(new URL(p).hostname)||new URL(p).hostname.endsWith('.my.canva.site')).slice(0,2)){
   try{for(const source of await renderPortfolioMedia(p))if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch(e){const code=e instanceof Error?e.message:'';discoveryError=/^PORTFOLIO_[A-Z_]+$/.test(code)?code:e instanceof Error&&e.name==='TimeoutError'?'SERVER_BROWSER_TIMEOUT':'SERVER_BROWSER_START_FAILED';console.error('creator_cloud_browser_failed',discoveryError,code.replace(/https?:\/\/\S+/g,'[url]').replace(/[A-Za-z0-9_-]{40,}/g,'[redacted]').slice(0,350))}
  }
  throw Error(discoveryError);
@@ -79,15 +113,24 @@ async function processCloudJob(j:any){
    await save({status:'completed',error:null});return;
   }
   const code=String(r.error||r.status||'MEDIA_UNAVAILABLE').slice(0,120),temporary=r.deferred||['processing','hourly_limit'].includes(r.status)||response.status>=500||response.status===429;
+  if(['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_SOCIAL_VIDEO_UNAVAILABLE','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO'].includes(code)&&j.samples.length===0){
+   await save({source:null,parent_url:null,samples:[source],status:'queued',error:'TRY_ALTERNATIVE_VIDEO',next_at:new Date().toISOString()});
+   return;
+  }
   await save({status:temporary?'processing':'blocked',error:code,next_at:new Date(Date.now()+(r.status==='hourly_limit'?3600000:r.status==='processing'?60000:temporary?600000:86400000)).toISOString()});
  }catch(e){await save({status:'blocked',error:e instanceof Error?e.message.slice(0,120):'QUEUE_JOB_FAILED',next_at:new Date(Date.now()+86400000).toISOString()})}
 }
 export async function runCloudQueue(){
  // Resume file preparation without waiting ten minutes or reuploading the video.
  await db.from('creator_cloud_jobs').update({next_at:new Date().toISOString()}).eq('status','processing').eq('error','processing').gt('next_at',new Date(Date.now()+60000).toISOString());
- // One-time upgrade of jobs previously blocked by the HTML-only resolver.
- const {data:old}=await db.from('creator_cloud_jobs').select('creator_id').eq('status','blocked').in('error',['NEEDS_ACCESSIBLE_VIDEO_SOURCE','SERVER_BROWSER_UNAVAILABLE','SERVER_BROWSER_RUNTIME_FAILED','NEEDS_RENDERED_VIDEO_SOURCE']);
- if(old?.length){const {data:rows}=await db.from('reddit_creator_directory').select('id,payload').in('id',old.map((j:any)=>j.creator_id));const ids=(rows||[]).filter((c:any)=>/canva\.(link|site|com)/i.test(c.payload.videos||'')).map((c:any)=>c.id);if(ids.length)await db.from('creator_cloud_jobs').update({status:'queued',error:'RENDERER_UPGRADE_RETRY',next_at:new Date().toISOString()}).in('creator_id',ids).eq('status','blocked').in('error',['NEEDS_ACCESSIBLE_VIDEO_SOURCE','SERVER_BROWSER_UNAVAILABLE','SERVER_BROWSER_RUNTIME_FAILED','NEEDS_RENDERED_VIDEO_SOURCE'])}
+ // Retry legacy discovery failures once. The new resolver reports different
+ // codes so jobs with no public source do not loop or consume later batches.
+ await db.from('creator_cloud_jobs').update({status:'queued',error:'TRY_PUBLIC_SOCIAL_VIDEO',next_at:new Date().toISOString()}).eq('status','blocked').is('source',null).in('error',['PUBLIC_PORTFOLIO_MEDIA_UNAVAILABLE','NEEDS_ACCESSIBLE_VIDEO_SOURCE','SERVER_BROWSER_UNAVAILABLE','SERVER_BROWSER_RUNTIME_FAILED','NEEDS_RENDERED_VIDEO_SOURCE']);
+ const rejectedCodes=['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_FILE_SIZE_UNSUPPORTED'];
+ const {data:rejected}=await db.from('creator_cloud_jobs').select('creator_id,source,error').eq('status','blocked').eq('samples','[]').not('source','is',null).in('error',rejectedCodes).limit(20);
+ await Promise.all((rejected||[]).map(job=>db.from('creator_cloud_jobs').update({
+  status:'queued',error:'TRY_ALTERNATIVE_VIDEO',source:null,parent_url:null,samples:[job.source],next_at:new Date().toISOString()
+ }).eq('creator_id',job.creator_id).eq('status','blocked').eq('source',job.source).eq('error',job.error).eq('samples','[]')));
  const {data:jobs,error}=await db.rpc('claim_creator_cloud_jobs');if(error)throw Error('QUEUE_CLAIM_FAILED');
  await Promise.all((jobs||[]).map(processCloudJob));return {handled:jobs?.length||0,...await cloudQueueStatus()};
 }

@@ -15,6 +15,7 @@ export class MediaReviewError extends Error {
   constructor(code: string) { super(code); this.code = code; }
 }
 const fail = (code: string): never => { throw new MediaReviewError(code); };
+const socialMediaHost = (host: string) => ['.tiktokcdn.com','.cdninstagram.com','.fbcdn.net'].some(suffix=>host.endsWith(suffix));
 export async function boundedVideoBytes(body: ReadableStream<Uint8Array> | null, limit = 32*1024*1024): Promise<Uint8Array<ArrayBuffer>> {
   if(!body)return fail('MEDIA_FILE_SIZE_UNSUPPORTED');
   const reader=body.getReader(),chunks:Uint8Array[]=[];let total=0;
@@ -82,7 +83,9 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
   let mimeType=/\.webm(?:\?|$)/i.test(uri)?'video/webm':/\.mov(?:\?|$)/i.test(uri)?'video/mov':'video/mp4';
   const fetcher = opts.fetcher ?? fetch;
   const initialHost=new URL(uri).hostname;
-  const managedMedia=initialHost.endsWith('.my.canva.site')||(initialHost==='media-public.canva.com'||initialHost==='media.canva.com')||initialHost.endsWith('.pages.dev')||initialHost==='firebasestorage.googleapis.com';
+  const socialMedia=socialMediaHost(initialHost);
+  const managedMedia=socialMedia||initialHost.endsWith('.my.canva.site')||(initialHost==='media-public.canva.com'||initialHost==='media.canva.com')||initialHost.endsWith('.pages.dev')||initialHost==='firebasestorage.googleapis.com';
+  const accessError=socialMedia?'MEDIA_SOCIAL_VIDEO_UNAVAILABLE':'MEDIA_DRIVE_ACCESS_REQUIRED';
   if (uri.startsWith('https://drive.google.com/uc?') || managedMedia) {
     let file = opts.providerFile;
     if (!file || Date.now()-Date.parse(file.uploadedAt) > 40*3600000) {
@@ -94,11 +97,12 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
         media=await fetcher(download,{redirect:'manual',signal:AbortSignal.timeout(20000)});
         if(media.status<300||media.status>=400)break;
         const next=new URL(media.headers.get('location')||'',download);
-        if(next.protocol!=='https:'||!(next.hostname==='drive.usercontent.google.com'||next.hostname.endsWith('.googleusercontent.com')||next.hostname===initialHost||(next.hostname==='media-public.canva.com'||next.hostname==='media.canva.com')||next.hostname.endsWith('.my.canva.site')||next.hostname==='firebasestorage.googleapis.com'))return fail('MEDIA_DRIVE_ACCESS_REQUIRED');
+        await media.body?.cancel();
+        if(next.protocol!=='https:'||next.username||next.password||next.port||!(next.hostname===initialHost||(!socialMedia&&(next.hostname==='drive.usercontent.google.com'||next.hostname.endsWith('.googleusercontent.com')||(next.hostname==='media-public.canva.com'||next.hostname==='media.canva.com')||next.hostname.endsWith('.my.canva.site')||next.hostname==='firebasestorage.googleapis.com'))))return fail(accessError);
         download=next.href;
       }
       let size=Number(media?.headers.get('content-length'));const mime=media?.headers.get('content-type')?.split(';')[0]||'';
-      if(!media?.ok||!mime.startsWith('video/'))return fail('MEDIA_DRIVE_ACCESS_REQUIRED');
+      if(!media?.ok||!mime.startsWith('video/')){await media?.body?.cancel();return fail(accessError)}
       if(Number.isSafeInteger(size)&&size>200*1024*1024){await media.body?.cancel();return fail('MEDIA_FILE_SIZE_UNSUPPORTED')}
       let uploadBody: BodyInit|null=media.body;
       if(!Number.isSafeInteger(size)||size<=0){const bytes=await boundedVideoBytes(media.body);size=bytes.byteLength;uploadBody=new Blob([bytes],{type:mime});}
