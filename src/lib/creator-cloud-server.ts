@@ -47,8 +47,9 @@ async function discover(c:any,j:any){
  if(j.source)return {source:j.source,parentUrl:j.parent_url};
  const links=portfolioLinks(c.payload.videos+' '+c.payload.profile);
  // Resume cached original media for this exact creator; never substitute another identity.
- const {data:cached}=await db.from('creator_media_reviews').select('source').eq('creator_id','hub-'+c.id).order('started_at',{ascending:false}).limit(2);
- for(const x of cached||[]){const parent=links.find(p=>{try{return new URL(p).hostname===new URL(x.source).hostname||(['canva.link','www.canva.com'].includes(new URL(p).hostname)&&new URL(x.source).hostname==='media.canva.com')}catch{return false}});if(parent&&!j.samples.includes(x.source))return {source:x.source,parentUrl:parent}}
+ const {data:cached}=await db.from('creator_media_reviews').select('source,status,result').eq('creator_id','hub-'+c.id).order('started_at',{ascending:false}).limit(12);
+ const ordered=[...(cached||[])].sort((a:any,b:any)=>Number(!!b.result?.audioReviewed&&b.result?.englishSpeech===true)-Number(!!a.result?.audioReviewed&&a.result?.englishSpeech===true));
+ for(const x of ordered){const parent=links.find(p=>{try{return new URL(p).hostname===new URL(x.source).hostname||(['canva.link','www.canva.com'].includes(new URL(p).hostname)&&new URL(x.source).hostname==='media.canva.com')}catch{return false}});if(parent&&!j.samples.includes(x.source))return {source:x.source,parentUrl:parent}}
  for(const p of links){try{const source=mediaSource(p,p);if(!j.samples.includes(source))return {source,parentUrl:p}}catch{}}
  for(const p of links.slice(0,3)){
   if(/(?:instagram|tiktok|photos\.icloud)\.com/.test(new URL(p).hostname))continue;

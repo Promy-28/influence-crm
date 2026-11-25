@@ -8,9 +8,11 @@ test('portfolio discovery retains source binding and rejects unrelated media',()
 });
 test('no color without original audio and visual evidence',()=>{
  assert.equal(cloudAssessment({videoReviewed:true,audioReviewed:false},'25'),null);
- const result={videoReviewed:true,audioReviewed:true,speech:[{second:1,quote:'Hello'}],frames:[{second:1,observation:'camera'}],englishSpeech:true,intelligibility:4,videoQuality:4,summary:'Чёткий разговорный пример',source:'https://a.example/clip.mp4'};
+ const result={videoReviewed:true,audioReviewed:true,speech:[{second:1,quote:'This is a short demonstration of my favorite product today'}],frames:[{second:1,observation:'camera'}],englishSpeech:true,intelligibility:4,videoQuality:4,summary:'Чёткий разговорный пример',source:'https://a.example/clip.mp4'};
  assert.equal(cloudAssessment(result,'300')?.decision,'maybe');
  assert.equal(cloudAssessment({...result,videoQuality:1},'10')?.decision,'no');
+ assert.equal(cloudAssessment({...result,englishSpeech:false},'10'),null);
+ assert.equal(cloudAssessment({...result,speech:[{second:1,quote:'Oh'}]},'10'),null);
 });
 test('stale cloud bridge cannot overwrite newer autonomous assessment',()=>{
  const assessment={at:'2026-11-25T12:00:00Z',decision:'maybe'};
