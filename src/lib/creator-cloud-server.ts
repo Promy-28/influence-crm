@@ -12,10 +12,10 @@ const origin='https://influence-crm-ashy.vercel.app';
 const token=()=>createHmac('sha256',process.env.SESSION_SECRET!).update('creator-cloud-tick-v1').digest('hex');
 export function cloudTickAuthorized(value:string){const a=Buffer.from(value),b=Buffer.from(token());return a.length===b.length&&timingSafeEqual(a,b)}
 export async function cloudQueueStatus(){
- const [control,jobs,claims]=await Promise.all([db.from('creator_cloud_control').select('*').eq('id',true).single(),db.from('creator_cloud_jobs').select('creator_id,status,error,next_at,updated_at'),db.from('creator_cloud_claims').select('creator_id').gte('hour',new Date(new Date().setUTCMinutes(0,0,0)).toISOString())]);
+ const [control,jobs,claims]=await Promise.all([db.from('creator_cloud_control').select('*').eq('id',true).single(),db.from('creator_cloud_jobs').select('creator_id,status,error,next_at,updated_at,lease_until,source'),db.from('creator_cloud_claims').select('creator_id').gte('hour',new Date(new Date().setUTCMinutes(0,0,0)).toISOString())]);
  if(control.error||jobs.error||claims.error)return {ready:false,error:'SERVER_QUEUE_MIGRATION_REQUIRED'};
  const counts={queued:0,processing:0,completed:0,blocked:0};for(const j of jobs.data||[])counts[j.status as keyof typeof counts]++;
- return {ready:true,...control.data,active:control.data.enabled&&(!control.data.until_at||Date.parse(control.data.until_at)>Date.now()),counts,usedThisHour:claims.data?.length||0,hourlyLimit:20,nextHour:new Date(new Date().setUTCMinutes(60,0,0)).toISOString(),blockers:(jobs.data||[]).filter(j=>j.status==='blocked').slice(0,20)};
+ return {ready:true,...control.data,active:control.data.enabled&&(!control.data.until_at||Date.parse(control.data.until_at)>Date.now()),counts,usedThisHour:claims.data?.length||0,hourlyLimit:20,nextHour:new Date(new Date().setUTCMinutes(60,0,0)).toISOString(),activeJobs:(jobs.data||[]).filter(j=>j.status==='processing').map(j=>({id:j.creator_id,stage:Date.parse(j.lease_until||'')>Date.now()?(j.source?'analyzing':'discovering'):'provider_wait',nextAt:j.next_at})),blockers:(jobs.data||[]).filter(j=>j.status==='blocked').slice(0,20).map(({creator_id,status,error,next_at,updated_at})=>({creator_id,status,error,next_at,updated_at}))};
 }
 export async function configureCloudQueue(mode:'day'|'continuous'|'pause'){
  if(!['day','continuous','pause'].includes(mode))throw Error('Invalid queue mode');
