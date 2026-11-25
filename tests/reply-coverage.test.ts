@@ -2,10 +2,22 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {questionCoverage,replyCoverageIssue} from '../src/lib/reply-coverage.ts';
 import {approvedBriefRewrite} from '../src/lib/writing-style.ts';
-import {briefReply,CREATOR_BRIEF} from '../src/lib/creator-policy.ts';
+import {briefReply,CREATOR_BRIEF,deferDraftPricing,deferPricingSummary,prematurePricing} from '../src/lib/creator-policy.ts';
 import {readyDraft} from '../src/lib/draft-approval.ts';
 import {renderReplyMacro} from '../src/lib/promy-bot/reply-macro.ts';
 const incoming=`I've created my account and uploaded my portfolio. Is this for a specific video order or mainly to join the creator network? Could you share more details about the brand or product and the type of content? How many videos and what are the expected formats and deadlines? Will they be used for organic content, paid ads, or both? Could you remind me of the rate per video I submitted and confirm the pricing? How payment works and what usage rights would be required?`;
+test('price discussion waits for the test, preserving the brief and actual paid work',()=>{
+ const first={stage:'initial'};
+ const original=briefReply('brief')+'\n\nRegarding pricing, we have the $80 rate you submitted in your form.';
+ const body=deferDraftPricing(original,first);
+ assert.ok(body.includes(CREATOR_BRIEF));
+ assert.ok(body.includes('after we receive your test video'));
+ assert.equal(replyCoverageIssue('I’m ready to go over pricing.',body),null);
+ assert.equal(prematurePricing(body,first),false);
+ assert.ok(!deferPricingSummary('Подтверждаем ставку 80 долларов.',first).includes('80'));
+ assert.equal(deferDraftPricing(original,{stage:'sample_received'}),original);
+ assert.equal(deferDraftPricing(original,{stage:'initial',scope:{text:'We can pay $150 for the raw clips.'}}),original);
+});
 test('Arielle regression: generic brief reply cannot silently drop commercial and project questions',()=>{
  const c=questionCoverage(incoming,briefReply('brief'));for(const topic of ['project','brand','deadline','rate','payment','usage','rights'] as const)assert.ok(c.missing.includes(topic),topic);
  assert.ok(replyCoverageIssue(incoming,briefReply('brief')));assert.equal(approvedBriefRewrite({replyContent:CREATOR_BRIEF,incomingText:incoming}),null);

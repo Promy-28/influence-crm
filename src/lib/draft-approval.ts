@@ -1,6 +1,7 @@
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import {REPLY_BANNER,renderReplyMacro} from './promy-bot/reply-macro.ts';
 import {hasUnresolvedPlaceholder} from './promy-bot/draft-content.ts';
+import {prematurePricing} from './creator-policy.ts';
 import {replyCoverageIssue} from './reply-coverage.ts';
 import {MAIL_CONTEXT_VERSION} from './conversation-safety.ts';
 export function exactDraft(d:any){return JSON.stringify([d.id,d.emailId,d.campaign,d.threadId,d.recipient,d.eaccount,d.subject,d.body,d.html,d.status,d.mailSource||'reddit',d.creatorId||null,d.kind||'reply',d.followupAnchor||null,d.contextVersion||null,d.conversationFingerprint||null])}
@@ -10,7 +11,7 @@ export function editableDraft(d:any,now=Date.now()){
  if(d.status!=='draft'||d.macroName!=='Reply'||!d.replyContent||!d.html||d.bannerUrl!==REPLY_BANNER||!Number.isFinite(Date.parse(d.createdAt))||now-Date.parse(d.createdAt)>86400000||Date.parse(d.createdAt)>now+300000)return false;
  try{const actual=renderReplyMacro({body:d.replyContent,firstName:d.macroFirstName,signature:d.signatureHtml});return actual.body===d.body&&actual.html===d.html}catch{return false}
 }
-export function readyDraft(d:any,now=Date.now()){return d.contextVersion===MAIL_CONTEXT_VERSION&&/^[a-f0-9]{64}$/.test(d.conversationFingerprint||'')&&editableDraft(d,now)&&!hasUnresolvedPlaceholder(d.replyContent)&&(d.kind==='followup'||!!d.editedAt||!replyCoverageIssue(d.incomingText,d.replyContent))}
+export function readyDraft(d:any,now=Date.now()){return d.contextVersion===MAIL_CONTEXT_VERSION&&/^[a-f0-9]{64}$/.test(d.conversationFingerprint||'')&&editableDraft(d,now)&&!prematurePricing(d.replyContent,d.briefContext)&&!hasUnresolvedPlaceholder(d.replyContent)&&(d.kind==='followup'||!!d.editedAt||!replyCoverageIssue(d.incomingText,d.replyContent))}
 export function latestDrafts(drafts:any[]){
  const newest=new Map<string,any>();
  for(const d of [...drafts].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))||b.id.localeCompare(a.id))){if(!newest.has(d.emailId))newest.set(d.emailId,d)}

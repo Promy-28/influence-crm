@@ -1,4 +1,5 @@
 import {needsDraftRefresh,refreshInstruction} from './draft-refresh-policy';
+import {CREATOR_POLICY_VERSION,prematurePricing,deferDraftPricing,deferPricingSummary} from './creator-policy';
 import {cleanOwnerSummary} from './writing-style';
 import {replyCoverageIssue,questionCoverage} from './reply-coverage';
 import {regenerationSnapshot} from './draft-regeneration';
@@ -22,6 +23,7 @@ import {approvalToken,validDraftApproval,readyDraft,editableDraft,latestDrafts} 
 const runtime=(env:ReturnType<typeof environment>):any=>createAgentRuntime({env,loadRecord,saveRecord,telegram,api,campaigns});
 async function records(source:MailSource='reddit'){return (await all<any>((from,to)=>db.from('promy_bot_records').select('id,value').like('id','draft:%').order('id').range(from,to))).map(r=>decodeRecord(r.value)).filter(d=>sourceMatches(d,source)&&(source==='apify'||d.campaign===MAIL_FOCUS.campaign))}
 export async function draftWorkspace(source:MailSource='reddit'){
+ await updateDraftPricing(source);
  const env=environment(),[drafts,queue,decisions]=await Promise.all([records(source),loadRecord(env,'agent_jobs'),all<any>((from,to)=>db.from('promy_bot_records').select('id,value').like('id','decision:%').order('id').range(from,to))]);
  const [history,membership]=await Promise.all([campaignHistory(),creatorCampaigns()]);
  const visible=latestDrafts(drafts).sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -56,6 +58,7 @@ export async function editWorkspaceDraft(id:string,token:unknown,body:string,sou
  const env=environment(),d=await loadRecord(env,'draft:'+id);
  if(!d||!sourceMatches(d,source)||!editableDraft(d)||!validDraftApproval(d,token,process.env.APP_PASSWORD!))throw Error('Черновик изменился или устарел. Обнови страницу.');
  if(!body.trim()||body.length>2800)throw Error('Нужен текст от 1 до 2800 символов.');
+ if(prematurePricing(body,d.briefContext))throw Error('Ставку обсуждаем после получения тестового видео.');
  Object.assign(d,renderReplyMacro({body,firstName:d.macroFirstName,signature:d.signatureHtml}),{editedAt:new Date().toISOString()});await saveRecord(env,'draft:'+id,d);return {saved:true};
 }
 export async function sendWorkspaceDraft(id:string,token:unknown,source:MailSource='reddit'){
@@ -88,6 +91,7 @@ export async function requestWorkspaceRevision(emailId:string,instruction:string
 
 // Durable, idempotent bulk migration. Never grants approval and never sends.
 export async function queueStaleDraftRefresh(source:MailSource='reddit',limit=500,force=false){
+ const {updated:pricingUpdated}=await updateDraftPricing(source);
  const env=environment(),r=runtime(env);let queued=0;const drafts=latestDrafts(await records(source)).filter(d=>needsDraftRefresh(d)||force&&['draft','stale','expired'].includes(d.status)&&d.emailId&&d.replyContent);
  for(const d of drafts.slice(0,Math.max(1,Math.min(500,limit)))){
   const current=await loadRecord(env,'draft:'+d.id);if(!current||approvalToken(current,process.env.APP_PASSWORD!)!==approvalToken(d,process.env.APP_PASSWORD!))continue;
@@ -98,8 +102,34 @@ export async function queueStaleDraftRefresh(source:MailSource='reddit',limit=50
    await r.enqueueJob({id,source:'hub_batch',mailSource:source,creatorId:d.creatorId||null,emailId:d.emailId,text:refreshInstruction(d),kind:d.kind||'reply',followupAnchor:d.followupAnchor||null,hubContext:{previousDraft:snapshot,revisionOf:d.id}});queued++;
   }catch(e){
    const fresh=await loadRecord(env,'draft:'+d.id);if(fresh?.status==='revision_requested'&&fresh.revisionJobId===id){fresh.status=previousStatus;delete fresh.revisionJobId;await saveRecord(env,'draft:'+d.id,fresh)}
-   if(e instanceof Error&&(e.message==='BOT_STATE_CONFLICT'||e.message==='Agent queue is full'))return {queued,remaining:drafts.length-queued,capacity:true};throw e;
+   if(e instanceof Error&&(e.message==='BOT_STATE_CONFLICT'||e.message==='Agent queue is full'))return {queued,pricingUpdated,remaining:drafts.length-queued,capacity:true};throw e;
   }
  }
- return {queued,remaining:Math.max(0,drafts.length-queued)};
+ return {queued,pricingUpdated,remaining:Math.max(0,drafts.length-queued)};
+}
+
+// Update only the latest unsent version and retain its exact prior wording.
+export async function updateDraftPricing(source:MailSource){
+ const env=environment();
+ let updated=0;
+ for(const draft of latestDrafts(await records(source))){
+  if(draft.status!=='draft'||!draft.briefContext||!draft.signatureHtml||!draft.macroFirstName||!draft.replyContent)continue;
+  const body=deferDraftPricing(draft.replyContent,draft.briefContext);
+  const summary=deferPricingSummary(draft.summary||'',draft.briefContext);
+  if(body===draft.replyContent&&summary===(draft.summary||''))continue;
+  if(!body||(draft.kind!=='followup'&&replyCoverageIssue(draft.incomingText,body)))continue;
+  const fresh=await loadRecord(env,'draft:'+draft.id);
+  if(!fresh||approvalToken(fresh,process.env.APP_PASSWORD!)!==approvalToken(draft,process.env.APP_PASSWORD!)||fresh.summary!==draft.summary)continue;
+  const id=createHash('sha256').update(fresh.id+':'+CREATOR_POLICY_VERSION).digest('hex').slice(0,8);
+  const next={...fresh,...renderReplyMacro({body,firstName:fresh.macroFirstName,signature:fresh.signatureHtml}),
+   id,revisionOf:fresh.id,previousVersion:{body:fresh.replyContent,summary:fresh.summary,editedAt:fresh.editedAt||null},
+   summary,policyVersion:CREATOR_POLICY_VERSION,createdAt:new Date().toISOString()};
+  try{
+   if(!await loadRecord(env,'draft:'+id))await saveRecord(env,'draft:'+id,next);
+   await saveRecord(env,'draft:'+fresh.id,{...fresh,status:'superseded'});
+   updated++;
+  }
+  catch(e){if(!(e instanceof Error)||e.message!=='BOT_STATE_CONFLICT')throw e}
+ }
+ return {updated};
 }

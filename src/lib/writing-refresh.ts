@@ -7,7 +7,7 @@ import {createAgentRuntime} from './promy-bot/agent-runtime';
 import {latestDrafts} from './draft-approval';
 import {generateAnswer} from './promy-bot/generate';
 import {renderReplyMacro} from './promy-bot/reply-macro';
-import {creatorPolicyIssue,CREATOR_POLICY} from './creator-policy';
+import {creatorPolicyIssue,CREATOR_POLICY,prematurePricing} from './creator-policy';
 import {replyCoverageIssue} from './reply-coverage';
 import {greetingName,approvedBriefRewrite} from './writing-style';
 import {WRITING_STYLE,WRITING_STYLE_VERSION,cleanOwnerSummary} from './writing-style';
@@ -31,7 +31,7 @@ export async function completeWritingRefresh(env:any,job:any,args:any){
  const current=parent.mailSource==='apify'?(await liveApifyConversation(env,parent.creatorId)).context:await (createAgentRuntime({env,loadRecord,saveRecord,api,telegram,campaigns}) as any).getThread(parent.emailId,{includeReferences:false});
  if(!await draftContextCurrent(parent,current))args={draftBody:'',requiresClarification:true,answer:'Переписка изменилась или старый черновик не содержит проверенной версии истории. Нужен новый ответ по текущей ветке; старый текст и ручные правки сохранены.'};
  const body=String(args.draftBody||'').trim(),answer=cleanOwnerSummary(String(args.answer||''));if(body.length>2800)throw Error('WRITING_TOO_LONG');
- const issue=creatorPolicyIssue(body)||replyCoverageIssue(parent.incomingText,body);let draft:any=null;
+ const issue=(prematurePricing(body,parent.briefContext)?'Сначала нужен тестовый ролик. Ставку обсуждаем после получения.':null)||creatorPolicyIssue(body)||replyCoverageIssue(parent.incomingText,body);let draft:any=null;
  if(body&&!args.requiresClarification&&!issue){
  const name=greetingName(parent.incomingText||'',parent.macroFirstName||'there');let signature=parent.signatureHtml;if(!signature){const inst=await loadRecord(env,'instantly'),account=await api(inst.key,'/accounts/'+encodeURIComponent(parent.eaccount));if(String(account.email||'').toLowerCase()!==String(parent.eaccount||'').toLowerCase()||!account.signature)throw Error('REPLY_MACRO_SIGNATURE_MISSING');signature=account.signature}
  draft={...parent,...renderReplyMacro({body,firstName:name,signature}),id:crypto.randomUUID().slice(0,8),status:'draft',createdAt:new Date().toISOString(),summary:answer,jobId:job.id,writingRefreshOf:parent.id};delete draft.writingRefreshRequestedAt;

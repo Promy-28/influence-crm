@@ -3,7 +3,7 @@
 // Shared mail safety core, mirrored from Creator Hub.
 import {WRITING_STYLE,cleanOwnerSummary} from '../writing-style.ts';
 import {REPLY_COVERAGE_POLICY,replyCoverageIssue,questionCoverage} from '../reply-coverage.ts';
-import {CREATOR_POLICY,CREATOR_POLICY_VERSION,creatorPolicyIssue} from '../creator-policy.ts';
+import {CREATOR_POLICY,CREATOR_POLICY_VERSION,creatorPolicyIssue,prematurePricing,deferDraftPricing,deferPricingSummary} from '../creator-policy.ts';
 import {analyzeConversations,reminderCandidates,unquotedText} from './mail-analysis.ts';
 import {shownDraftFingerprint} from './dialogue-actions.ts';
 import {composeReplyMacro} from './reply-macro.ts';
@@ -146,11 +146,12 @@ export function createAgentRuntime({env,api,telegram,loadRecord,saveRecord,campa
    await validateIncoming(email);
    if(!context.complete||context.thread?.state!=='waiting_on_us'||context.thread.latestMessageId!==email.id)throw Error('Thread incomplete, stale or suppressed');
    const threadState=await load('threadstate:'+email.thread_id);if(threadState?.closed||threadState?.status==='closed'||Date.parse(threadState?.snoozedUntil||'')>Date.now())throw Error('Thread closed or snoozed');
-   const briefIssue=creatorPolicyIssue(draftBody)||briefDraftIssue(draftBody,context.briefContext)||replyCoverageIssue(unquotedText(email),draftBody);
+   draftBody=deferDraftPricing(draftBody,context.briefContext);
+   const briefIssue=(prematurePricing(draftBody,context.briefContext)?'До получения тестового видео ставку не указываем. Предложи обсудить цену после получения ролика.':null)||creatorPolicyIssue(draftBody)||briefDraftIssue(draftBody,context.briefContext)||replyCoverageIssue(unquotedText(email),draftBody);
    if(briefIssue){draftBody='';requiresClarification=true;answer=briefIssue}else{
    const draftId=crypto.randomUUID().slice(0,8);draft={id:draftId,status:'draft',createdAt:iso(),emailId:email.id,campaign:email.campaign_id,threadId:email.thread_id,eaccount:email.eaccount,recipient:email.from_address_email,subject:/^re:/i.test(email.subject||'')?email.subject:'Re: '+(email.subject||''),body:draftBody.trim()};
    Object.assign(draft,await composeReplyMacro(provider,{body:draft.body,recipient:draft.recipient,eaccount:draft.eaccount,campaignId:draft.campaign,incomingText:unquotedText(email)}));
-   draft.previousVersion=job.hubContext?.previousDraft||null;draft.revisionOf=job.hubContext?.revisionOf||null;draft.policyVersion=CREATOR_POLICY_VERSION;draft.briefContext=context.briefContext;draft.contextVersion=MAIL_CONTEXT_VERSION;draft.conversationFingerprint=await conversationFingerprint(context);draft.incomingText=unquotedText(email).slice(0,8000);draft.incomingAt=email.timestamp_email||email.timestamp_created;draft.jobId=job.id;draft.source=job.source;draft.mailSource=job.mailSource||'reddit';draft.creatorId=job.creatorId||null;answer=cleanOwnerSummary(answer);draft.summary=answer;
+   draft.previousVersion=job.hubContext?.previousDraft||null;draft.revisionOf=job.hubContext?.revisionOf||null;draft.policyVersion=CREATOR_POLICY_VERSION;draft.briefContext=context.briefContext;draft.contextVersion=MAIL_CONTEXT_VERSION;draft.conversationFingerprint=await conversationFingerprint(context);draft.incomingText=unquotedText(email).slice(0,8000);draft.incomingAt=email.timestamp_email||email.timestamp_created;draft.jobId=job.id;draft.source=job.source;draft.mailSource=job.mailSource||'reddit';draft.creatorId=job.creatorId||null;answer=deferPricingSummary(cleanOwnerSummary(answer),context.briefContext);draft.summary=answer;
    await save('draft:'+draft.id,draft);job.draftId=draft.id;
    }
   }
