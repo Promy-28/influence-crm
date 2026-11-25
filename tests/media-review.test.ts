@@ -103,3 +103,11 @@ test('media observation is formatted separately without resending video, retaini
  const fetcher=(async(url,req)=>{calls++;const body=JSON.parse(String(req?.body));if(calls===1){assert.ok(body.contents[0].parts[0].fileData);return Response.json({candidates:[{content:{parts:[{text:report}]}}]});}assert.equal(body.contents[0].parts.length,1);assert.equal(body.contents[0].parts[0].fileData,undefined);assert.ok(body.contents[0].parts[0].text.includes(JSON.stringify(report)));return Response.json({candidates:[{content:{parts:[{text:JSON.stringify(result)}]}}]});}) as typeof fetch;
  const got=await analyzeMedia({apiKey:'test',freeProjectConfirmed:true,source:sample,preferGenerateContent:true,fetcher});assert.equal(got.evidenceReport,report);assert.equal(got.transportUsed,'generateContent-evidence');assert.equal(calls,2);
 });
+
+
+test('official Canva editor media CDN is accepted, impersonating domains are rejected',()=>{
+ const url='https://media.canva.com/v2/files/uri:ifs%3A%2F%2FV%2Fsample.MP4?exp=123&token=fixture';
+ assert.equal(mediaSource(url),url);
+ assert.throws(()=>mediaSource('https://media.canva.com.evil.test/sample.MP4'));
+ assert.throws(()=>mediaSource('https://media.canva.com/index.html'));
+});
