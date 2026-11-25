@@ -52,12 +52,13 @@ async function discover(c:any,j:any){
  const ordered=[...(cached||[])].sort((a:any,b:any)=>Number(!!b.result?.audioReviewed&&b.result?.englishSpeech===true)-Number(!!a.result?.audioReviewed&&a.result?.englishSpeech===true));
  for(const x of ordered){const parent=links.find(p=>{try{return new URL(p).hostname===new URL(x.source).hostname||(['canva.link','www.canva.com'].includes(new URL(p).hostname)&&new URL(x.source).hostname==='media.canva.com')}catch{return false}});if(parent&&!j.samples.includes(x.source))return {source:x.source,parentUrl:parent}}
  for(const p of links){try{const source=mediaSource(p,p);if(!j.samples.includes(source))return {source,parentUrl:p}}catch{}}
+ let discoveryError='NEEDS_RENDERED_VIDEO_SOURCE';
  for(const p of links.slice(0,3)){
   if(/(?:instagram|tiktok|photos\.icloud)\.com/.test(new URL(p).hostname))continue;
   try{const media=await portfolioHtml(p);for(const source of media)if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch{}
-  try{for(const source of await renderPortfolioMedia(p))if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch{}
+  try{for(const source of await renderPortfolioMedia(p))if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch(e){const code=e instanceof Error?e.message:'';discoveryError=/^PORTFOLIO_[A-Z_]+$/.test(code)?code:'SERVER_BROWSER_UNAVAILABLE';console.error('creator_cloud_browser_failed',discoveryError)}
  }
- throw Error('NEEDS_RENDERED_VIDEO_SOURCE');
+ throw Error(discoveryError);
 }
 async function processCloudJob(j:any){
  const {data:c,error}=await db.from('reddit_creator_directory').select('*').eq('id',j.creator_id).single();if(error||!c)throw Error('CREATOR_NOT_FOUND');
