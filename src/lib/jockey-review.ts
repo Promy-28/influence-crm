@@ -1,4 +1,4 @@
-import {boundedVideoBytes,mediaSource,MEDIA_RUBRIC,validateMediaReview,type MediaReview} from './media-review.ts';
+import {boundedVideoBytes,mediaSource,MEDIA_RUBRIC,socialMediaHost,validateMediaReview,type MediaReview} from './media-review.ts';
 import {lookup} from 'node:dns/promises';
 import {isIP} from 'node:net';
 type ResolveHost=(host:string)=>Promise<{address:string}[]>;
@@ -28,7 +28,8 @@ export async function runJockeyReview(opts:{apiKey:string;freePlanConfirmed:bool
  const source=mediaSource(opts.source,opts.parentUrl),s=opts.state;
  const host=new URL(source).hostname;
  const drive=host==='drive.google.com';
- const direct=drive||host.endsWith('.my.canva.site')||(host==='media-public.canva.com'||host==='media.canva.com')||host.endsWith('.pages.dev')||host==='firebasestorage.googleapis.com'||host.endsWith('.tiktokcdn.com')||host.endsWith('.cdninstagram.com')||host.endsWith('.fbcdn.net');
+ const socialMedia=socialMediaHost(host);
+ const direct=drive||host.endsWith('.my.canva.site')||(host==='media-public.canva.com'||host==='media.canva.com')||host.endsWith('.pages.dev')||host==='firebasestorage.googleapis.com'||socialMedia;
  if(!direct&&!await publicPortfolioMedia(source,opts.parentUrl,opts.resolveHost))throw Error('MEDIA_JOCKEY_DIRECT_SOURCE_REQUIRED');
  if(s.source!==source)throw Error('MEDIA_JOCKEY_SOURCE_MISMATCH');
  if(s.result)return s.result;
@@ -43,7 +44,7 @@ export async function runJockeyReview(opts:{apiKey:string;freePlanConfirmed:bool
  const ready=async(path:string)=>{for(let i=0;i<12;i++){const d=await call(path);if(d.status==='ready')return;if(d.status==='failed')throw Error('MEDIA_JOCKEY_ASSET_FAILED');await wait(5000)}throw Error('MEDIA_JOCKEY_PROCESSING')};
  if(!s.assetId){
   if(s.uploadStarted)throw Error('MEDIA_JOCKEY_UPLOAD_UNCERTAIN');
-  if(!drive&&!/\.(mp4|webm|mov)(?:\?|$)/i.test(source))throw Error('MEDIA_JOCKEY_DIRECT_SAMPLE_REQUIRED');
+  if(!drive&&!socialMedia&&!/\.(mp4|webm|mov)(?:\?|$)/i.test(source))throw Error('MEDIA_JOCKEY_DIRECT_SAMPLE_REQUIRED');
   const form=new FormData();
   if(!direct){
    // The provider fetches a public, canonical portfolio file. The hub never fetches arbitrary hosts.

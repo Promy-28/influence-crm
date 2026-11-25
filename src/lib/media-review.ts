@@ -16,7 +16,7 @@ export class MediaReviewError extends Error {
 }
 const fail = (code: string): never => { throw new MediaReviewError(code); };
 const tiktokMediaHost = (host: string) => ['.tiktokcdn.com','.tiktokcdn-us.com','.tiktokcdn-eu.com'].some(suffix=>host.endsWith(suffix));
-const socialMediaHost = (host: string) => tiktokMediaHost(host)||['.cdninstagram.com','.fbcdn.net'].some(suffix=>host.endsWith(suffix));
+export const socialMediaHost = (host: string) => tiktokMediaHost(host)||['.cdninstagram.com','.fbcdn.net'].some(suffix=>host.endsWith(suffix));
 export async function boundedVideoBytes(body: ReadableStream<Uint8Array> | null, limit = 32*1024*1024): Promise<Uint8Array<ArrayBuffer>> {
   if(!body)return fail('MEDIA_FILE_SIZE_UNSUPPORTED');
   const reader=body.getReader(),chunks:Uint8Array[]=[];let total=0;
