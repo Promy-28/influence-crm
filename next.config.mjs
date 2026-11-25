@@ -1,1 +1,1 @@
-const c = { experimental: { serverActions: { bodySizeLimit: "4mb" } } }; export default c;
+const c = { serverExternalPackages: ['@sparticuz/chromium','puppeteer-core'], outputFileTracingIncludes: {'/api/creator-review':['./node_modules/@sparticuz/chromium/bin/**'],'/api/creator-review/cloud-tick':['./node_modules/@sparticuz/chromium/bin/**']}, experimental: { serverActions: { bodySizeLimit: "4mb" } } }; export default c;

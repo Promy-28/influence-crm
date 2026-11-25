@@ -7,6 +7,7 @@ import {mediaSource} from './media-review';
 import {publicPortfolioMedia} from './jockey-review';
 import {POST as analyze} from '@/app/api/media-review/route';
 import {NextRequest} from 'next/server';
+import {renderPortfolioMedia} from './creator-cloud-browser';
 const origin='https://influence-crm-ashy.vercel.app';
 const token=()=>createHmac('sha256',process.env.SESSION_SECRET!).update('creator-cloud-tick-v1').digest('hex');
 export function cloudTickAuthorized(value:string){const a=Buffer.from(value),b=Buffer.from(token());return a.length===b.length&&timingSafeEqual(a,b)}
@@ -54,8 +55,9 @@ async function discover(c:any,j:any){
  for(const p of links.slice(0,3)){
   if(/(?:instagram|tiktok|photos\.icloud)\.com/.test(new URL(p).hostname))continue;
   try{const media=await portfolioHtml(p);for(const source of media)if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch{}
+  try{for(const source of await renderPortfolioMedia(p))if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch{}
  }
- throw Error('NEEDS_ACCESSIBLE_VIDEO_SOURCE');
+ throw Error('NEEDS_RENDERED_VIDEO_SOURCE');
 }
 async function processCloudJob(j:any){
  const {data:c,error}=await db.from('reddit_creator_directory').select('*').eq('id',j.creator_id).single();if(error||!c)throw Error('CREATOR_NOT_FOUND');
@@ -80,6 +82,9 @@ async function processCloudJob(j:any){
  }catch(e){await save({status:'blocked',error:e instanceof Error?e.message.slice(0,120):'QUEUE_JOB_FAILED',next_at:new Date(Date.now()+86400000).toISOString()})}
 }
 export async function runCloudQueue(){
+ // One-time upgrade of jobs previously blocked by the HTML-only resolver.
+ const {data:old}=await db.from('creator_cloud_jobs').select('creator_id').eq('status','blocked').eq('error','NEEDS_ACCESSIBLE_VIDEO_SOURCE');
+ if(old?.length){const {data:rows}=await db.from('reddit_creator_directory').select('id,payload').in('id',old.map((j:any)=>j.creator_id));const ids=(rows||[]).filter((c:any)=>/canva\.(link|site|com)/i.test(c.payload.videos||'')).map((c:any)=>c.id);if(ids.length)await db.from('creator_cloud_jobs').update({status:'queued',error:'RENDERER_UPGRADE_RETRY',next_at:new Date().toISOString()}).in('creator_id',ids).eq('status','blocked').eq('error','NEEDS_ACCESSIBLE_VIDEO_SOURCE')}
  const {data:jobs,error}=await db.rpc('claim_creator_cloud_jobs');if(error)throw Error('QUEUE_CLAIM_FAILED');
  await Promise.all((jobs||[]).map(processCloudJob));return {handled:jobs?.length||0,...await cloudQueueStatus()};
 }
