@@ -104,7 +104,9 @@ async function discover(c:any,j:any){
  for(const p of links.filter(p=>['canva.link','canva.com','www.canva.com'].includes(new URL(p).hostname)||new URL(p).hostname.endsWith('.my.canva.site')).slice(0,2)){
   try{for(const source of await renderPortfolioMedia(p))if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch(e){const code=e instanceof Error?e.message:'';discoveryError=/^PORTFOLIO_[A-Z_]+$/.test(code)?code:e instanceof Error&&e.name==='TimeoutError'?'SERVER_BROWSER_TIMEOUT':'SERVER_BROWSER_START_FAILED';console.error('creator_cloud_browser_failed',discoveryError,code.replace(/https?:\/\/\S+/g,'[url]').replace(/[A-Za-z0-9_-]{40,}/g,'[redacted]').slice(0,350))}
  }
- throw Error(discoveryError==='SOCIAL_VIDEO_SOURCE_REQUIRED'&&triedTikTokProfile?'TIKTOK_EMBED_NO_PLAYABLE_VIDEO':discoveryError);
+ if(discoveryError==='SOCIAL_VIDEO_SOURCE_REQUIRED'&&triedTikTokProfile)throw Error('TIKTOK_EMBED_NO_PLAYABLE_VIDEO');
+ if(j.error==='TRY_CANVA_SITE_VIDEO'&&['SOCIAL_VIDEO_SOURCE_REQUIRED','NO_PUBLIC_VIDEO_DISCOVERED'].includes(discoveryError))throw Error('CANVA_SITE_NO_PLAYABLE_VIDEO');
+ throw Error(discoveryError);
 }
 async function processCloudJob(j:any){
  const {data:c,error}=await db.from('reddit_creator_directory').select('*').eq('id',j.creator_id).single();if(error||!c)throw Error('CREATOR_NOT_FOUND');
@@ -145,6 +147,12 @@ export async function runCloudQueue(){
  }).map(row=>row.creator_id);
  if(tiktokIds.length){
   await db.from('creator_cloud_jobs').update({status:'queued',error:'TRY_TIKTOK_PROFILE_EMBED',next_at:new Date().toISOString()}).in('creator_id',tiktokIds).eq('status','blocked').eq('error','SOCIAL_VIDEO_SOURCE_REQUIRED');
+ }
+ const canvaErrors=['NO_PUBLIC_VIDEO_DISCOVERED','SOCIAL_VIDEO_SOURCE_REQUIRED'];
+ const {data:canvaBlocked}=await db.from('creator_cloud_jobs').select('creator_id,reddit_creator_directory(payload)').eq('status','blocked').in('error',canvaErrors);
+ const canvaIds=(canvaBlocked||[]).filter((row:any)=>portfolioLinks(row.reddit_creator_directory?.payload?.videos||'').some(p=>new URL(p).hostname.endsWith('.my.canva.site'))).map(row=>row.creator_id);
+ if(canvaIds.length){
+  await db.from('creator_cloud_jobs').update({status:'queued',error:'TRY_CANVA_SITE_VIDEO',next_at:new Date().toISOString()}).in('creator_id',canvaIds).eq('status','blocked').in('error',canvaErrors);
  }
  const rejectedCodes=['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_FILE_SIZE_UNSUPPORTED'];
  const {data:rejected}=await db.from('creator_cloud_jobs').select('creator_id,source,error').eq('status','blocked').eq('samples','[]').not('source','is',null).in('error',rejectedCodes).limit(20);

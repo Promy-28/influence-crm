@@ -7,6 +7,12 @@ test('portfolio discovery retains source binding and rejects unrelated media',()
  assert.deepEqual(embeddedMedia('<video src="/_assets/video/abc.mp4"></video><video src="https://evil.example/file.mp4">','https://creator.my.canva.site/'),['https://creator.my.canva.site/_assets/video/abc.mp4']);
  assert.deepEqual(portfolioLinks('https://example.com/a\nhttps://example.com/a'),['https://example.com/a']);
 });
+test('Canva site data exposes relative primary videos for separate clips',()=>{
+ const html='<base href="/portfolio/">{"files":[{"url":"_assets/video/first.mp4"}],"rendition":"_assets/video/first-small.mp4"},{"files":[{"url":"_assets/video/second.mp4"}]}';
+ assert.deepEqual(embeddedMedia(html,'https://creator.my.canva.site/portfolio'),[
+  'https://creator.my.canva.site/portfolio/_assets/video/first.mp4','https://creator.my.canva.site/portfolio/_assets/video/second.mp4',
+ ]);
+});
 test('no color without original audio and visual evidence',()=>{
  assert.equal(cloudAssessment({videoReviewed:true,audioReviewed:false},'25'),null);
  const result={videoReviewed:true,audioReviewed:true,speech:[{second:1,quote:'This is a short demonstration of my favorite product today'}],frames:[{second:1,observation:'camera'}],englishSpeech:true,intelligibility:4,videoQuality:4,summary:'Чёткий разговорный пример',source:'https://a.example/clip.mp4'};

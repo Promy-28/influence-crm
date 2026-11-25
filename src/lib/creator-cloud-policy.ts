@@ -67,8 +67,17 @@ export function socialPostMedia(html: string, page: string) {
 }
 export function embeddedMedia(html:string,base:string){
  const text=html.replace(/\\u002[fF]/g,'/').replace(/\\\//g,'/').replace(/&amp;/g,'&');
+ const page=new URL(base);
+ const canvaSite=page.hostname.endsWith('.my.canva.site');
+ const basePath=canvaSite?text.match(/<base\s+href=["'](\/(?!\/)[\w/-]*)["']/i)?.[1]:undefined;
+ const assetBase=basePath?new URL(basePath,page):page;
+ // Canva Sites emit a primary rendition per asset, followed by copies at
+ // different resolutions. Prefer the primary entries across different clips.
+ const canvaVideos=canvaSite
+  ? [...text.matchAll(/"files"\s*:\s*\[\s*\{\s*"url"\s*:\s*"((?:\.\/|\/)?_assets\/video\/[\w-]+\.(?:mp4|webm|mov))"/gi)].map(m=>new URL(m[1],assetBase).href)
+  : [];
  const urls=[...text.matchAll(/(?:https:\/\/[^\s"'<>\\]+|\/_assets\/[^\s"'<>\\]+)\.(?:mp4|mov|webm)(?:\?[^\s"'<>\\]*)?/gi)].map(m=>new URL(m[0],base).href);
- return [...new Set(urls)].filter(s=>{const u=new URL(s),p=new URL(base);return u.hostname===p.hostname||['media.canva.com','media-public.canva.com'].includes(u.hostname)}).slice(0,12);
+ return [...new Set([...canvaVideos,...urls])].filter(s=>{const u=new URL(s);return u.hostname===page.hostname||['media.canva.com','media-public.canva.com'].includes(u.hostname)}).slice(0,12);
 }
 export function cloudAssessment(result:any,quote:string){
  if(!result?.videoReviewed||!result?.audioReviewed||result.englishSpeech!==true||!result?.speech?.length||!result?.frames?.length)return null;
