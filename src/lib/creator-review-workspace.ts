@@ -7,8 +7,9 @@ import {creatorProgress,creatorReviewState} from './creator-progress';
 import {browserEvidence} from './browser-review-policy';
 import {twelveMediaTask} from './twelve-media';
 import {boundedVideoBytes} from './media-review';
+import {cloudQueueStatus} from './creator-cloud-server';
 export async function reviewWorkspace(){
- const [rows,browserAgent]=await Promise.all([redditDirectory(),loadRecord(environment(),'_creator_browser_agent')]);return {browserAgent:browserAgent||{enabled:false},counts:creatorProgress(rows),at:new Date().toISOString(),rows:rows.map((c:any)=>({id:c.id,email:c.email,name:c.payload.name||c.payload.reddit||c.email,profile:c.payload.profile||'',videos:c.payload.videos||'',links:safeLinks(c.payload.profile+' '+c.payload.videos),price:c.payload.price||'',state:creatorReviewState(c),reason:c.payload.assessment?.reason||'',ownerRating:c.rating,ownerReason:c.reason,updatedAt:c.updated_at,legacy:c.legacy,browserReview:c.payload.browserReview||null}))};
+ const [rows,browserAgent,cloudQueue]=await Promise.all([redditDirectory(),loadRecord(environment(),'_creator_browser_agent'),cloudQueueStatus()]);return {cloudQueue,browserAgent:browserAgent||{enabled:false},counts:creatorProgress(rows),at:new Date().toISOString(),rows:rows.map((c:any)=>({id:c.id,email:c.email,name:c.payload.name||c.payload.reddit||c.email,profile:c.payload.profile||'',videos:c.payload.videos||'',links:safeLinks(c.payload.profile+' '+c.payload.videos),price:c.payload.price||'',state:creatorReviewState(c),reason:c.payload.assessment?.reason||'',ownerRating:c.rating,ownerReason:c.reason,updatedAt:c.updated_at,legacy:c.legacy,browserReview:c.payload.browserReview||null}))};
 }
 async function canonical(c:any){
  if(!c.legacy)return c;
