@@ -39,12 +39,19 @@ export async function creatorTikTokPosts(creatorId:string){
  const {data}=await db.from('reddit_creator_directory').select('payload').eq('id',creatorId).maybeSingle();
  if(!data)return [];
  const p=data.payload,review=p.autonomousReview;
+ const fingerprint=typeof p.sourceFingerprint==='string'?p.sourceFingerprint:JSON.stringify([p.videos,p.profile]);
  const assessed=review?.fingerprint===p.sourceFingerprint&&review?.assessment?.videoReviewed===true&&review?.assessment?.audioReviewed===true;
  const verifiedSource=assessed?tiktokStreamKey(review.source):null;
  const links=portfolioLinks([p.videos,p.profile].join(' '));
- const found=new Map<string,{url:string;cover:string|null;verified:boolean}>();
+ const found=new Map<string,{url:string;cover:string|null;streamKey?:string|null;verified:boolean}>();
+ const {data:cached}=await db.from('creator_tiktok_posts').select('posts').eq('creator_id',creatorId).eq('fingerprint',fingerprint).maybeSingle();
+ for(const post of Array.isArray(cached?.posts)?cached.posts:[]){
+  const key=tiktokPlayer(post.url);
+  if(key)found.set(key,{...post,cover:null,verified:!!verifiedSource&&verifiedSource===post.streamKey});
+ }
  for(const link of links){
-  if(tiktokPlayer(link))found.set(tiktokPlayer(link)!,{url:link,cover:null,verified:assessed&&review.postUrl===link});
+  const key=tiktokPlayer(link);
+  if(key&&!found.has(key))found.set(key,{url:link,cover:null,verified:assessed&&tiktokPlayer(review.postUrl)===key});
  }
  if(assessed&&tiktokPlayer(review.postUrl))found.set(tiktokPlayer(review.postUrl)!,{url:review.postUrl,cover:review.postCover||null,verified:true});
  for(const embed of [...new Set(links.map(tiktokProfileEmbed).filter(Boolean))].slice(0,2)){
@@ -56,11 +63,20 @@ export async function creatorTikTokPosts(creatorId:string){
    for(const post of tiktokEmbedPosts(html,embed!)){
     const key=tiktokPlayer(post.url);
     if(!key)continue;
-    found.set(key,{url:post.url,cover:post.cover,verified:!!found.get(key)?.verified||!!verifiedSource&&verifiedSource===tiktokStreamKey(post.source)});
+    const streamKey=tiktokStreamKey(post.source);
+    found.set(key,{url:post.url,cover:post.cover,streamKey,verified:!!found.get(key)?.verified||!!verifiedSource&&verifiedSource===streamKey});
    }
   }catch{ /* Explicit post links remain available. */ }
  }
- return Promise.all([...found.values()].sort((a,b)=>Number(b.verified)-Number(a.verified)).slice(0,4).map(async post=>{
+ const shown=[...found.values()].sort((a,b)=>Number(b.verified)-Number(a.verified)).slice(0,4);
+ if(shown.length){
+  const posts=shown.map(({url,streamKey})=>({url,streamKey}));
+  const unchanged=posts.length===cached?.posts?.length&&posts.every((post,i)=>post.url===cached.posts[i]?.url&&post.streamKey===cached.posts[i]?.streamKey);
+  if(!unchanged){
+   await db.from('creator_tiktok_posts').upsert({creator_id:creatorId,fingerprint,posts}).catch(()=>console.warn('creator_tiktok_posts_cache_failed'));
+  }
+ }
+ return Promise.all(shown.map(async post=>{
   const id=new URL(post.url).pathname.match(/\/video\/(\d+)/)?.[1]!;
   return {url:post.url,verified:post.verified,cover:id?await saveCover(id,post.cover):undefined};
  }));
