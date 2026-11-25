@@ -1,7 +1,7 @@
 import 'server-only';
 import {db} from './db';
 import {portfolioLinks,tiktokEmbedPosts,tiktokProfileEmbed,tiktokStreamKey} from './creator-cloud-policy';
-import {expiredPostAsset,postCoverKey,publicHttps,tiktokPlayer} from './post-preview';
+import {expiredPostAsset,postCoverKey,publicHttps,tiktokPlayer,tiktokPostCover} from './post-preview';
 
 export const coverBucket='creator-tiktok-covers';
 const imageLimit=256*1024;
@@ -45,6 +45,7 @@ async function publicPostCover(postUrl:string,key:string){
  if(!response.ok)return null;
  const html=await response.text();
  if(html.length>2000000)return null;
+ if(!key.startsWith('ig-'))return tiktokPostCover(html,postUrl);
  for(const match of html.matchAll(/<meta\s[^>]*>/gi)){
   const attrs=new Map([...match[0].matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g)].map(m=>[m[1].toLowerCase(),m[3]]));
   if(attrs.get('property')?.toLowerCase()==='og:image'){

@@ -22,3 +22,16 @@ export function postCoverKey(value:unknown){
  const shortcode=u.pathname.match(/^\/(?:p|reel|tv)\/([\w-]{5,32})\/?$/)?.[1];
  return shortcode?'ig-'+shortcode:null;
 }
+
+export function tiktokPostCover(html:string,postUrl:string){
+ const id=postCoverKey(postUrl);
+ if(!id||!tiktokPlayer(postUrl))return null;
+ const state=html.match(/<script\b[^>]*\bid=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i)?.[1];
+ if(!state)return null;
+ try {
+  const item=JSON.parse(state)?.__DEFAULT_SCOPE__?.['webapp.video-detail']?.itemInfo?.itemStruct;
+  const handle=new URL(postUrl).pathname.split('/')[1]?.slice(1);
+  if(item?.id!==id||typeof item.author?.uniqueId!=='string'||item.author.uniqueId.toLowerCase()!==handle.toLowerCase())return null;
+  return publicHttps(item.video?.cover)||publicHttps(item.video?.originCover);
+ }catch{return null}
+}
