@@ -2,7 +2,8 @@ import 'server-only';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import {db} from './db';
 import {creatorReviewState} from './creator-progress';
-import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia,tiktokProfileEmbed,tiktokEmbedMedia} from './creator-cloud-policy';
+import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia,tiktokProfileEmbed,tiktokEmbedPosts} from './creator-cloud-policy';
+import {tiktokPlayer} from './post-preview';
 import {mediaSource} from './media-review';
 import {publicPortfolioMedia} from './jockey-review';
 import {POST as analyze} from '@/app/api/media-review/route';
@@ -77,8 +78,10 @@ async function discover(c:any,j:any){
    try{
     const page=await portfolioHtml(embed);
     if(page.url===embed){
-     const sample=findSample(tiktokEmbedMedia(page.html,embed),p);
-     if(sample)return sample;
+     for(const post of tiktokEmbedPosts(page.html,embed)){
+      const sample=findSample([post.source],post.url);
+      if(sample)return sample;
+     }
     }
    }catch{ /* Continue with submitted links and the regular public page. */ }
   }
@@ -122,7 +125,7 @@ async function processCloudJob(j:any){
   if(r.status==='completed'&&r.result){
    const assessment=cloudAssessment({...r.result,source},c.payload.price);
    if(!assessment){await save({source:null,parent_url:null,samples:[...j.samples,source],status:j.samples.length>=1?'blocked':'queued',error:'SAMPLE_WITHOUT_VERIFIED_SPEECH',next_at:new Date(Date.now()+3600000).toISOString()});return}
-   const payload={...c.payload,assessment,autonomousReview:{assessment,fingerprint:j.fingerprint,source,parentUrl,at:assessment.at},reviewSourceFingerprint:j.fingerprint,reviewStatus:'awaiting_owner',mediaEvidence:r.result};
+   const payload={...c.payload,assessment,autonomousReview:{assessment,fingerprint:j.fingerprint,source,parentUrl,postUrl:tiktokPlayer(parentUrl)?parentUrl:null,at:assessment.at},reviewSourceFingerprint:j.fingerprint,reviewStatus:'awaiting_owner',mediaEvidence:r.result};
    const {data:written,error:e}=await db.from('reddit_creator_directory').update({payload,review_pending:false,updated_at:assessment.at}).eq('id',c.id).eq('updated_at',c.updated_at).select('id');if(e||!written?.length)throw Error('SOURCE_CHANGED_RESULT_NOT_APPLIED');
    await save({status:'completed',error:null});return;
   }

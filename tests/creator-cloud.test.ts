@@ -41,7 +41,7 @@ test('TikTok profile embed accepts public videos belonging to the submitted hand
  const embed=tiktokProfileEmbed(profile)!;
  assert.equal(embed,'https://www.tiktok.com'+path);
  const stream='https://v16m.tiktokcdn-us.com/948910770206ebd399daeb94704f3caf/6b09770c/video/tos/useast5/tos-useast5-ve-0068c001-tx/example/?token=value';
- const video={authorUniqueId:'sample',privateItem:false,playAddr:stream};
+ const video={id:'1234567890123456789',authorUniqueId:'sample',privateItem:false,playAddr:stream};
  const state={source:{data:{[path]:{videoList:[video,{...video,privateItem:true,playAddr:'private'},{...video,authorUniqueId:'other',playAddr:'other'}]}}}};
  assert.deepEqual(tiktokEmbedMedia('<script id="__FRONTITY_CONNECT_STATE__">'+JSON.stringify(state)+'</script>',embed),[stream]);
  assert.equal(mediaSource(stream,profile),stream);

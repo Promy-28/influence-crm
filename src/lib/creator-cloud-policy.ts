@@ -12,7 +12,7 @@ export function tiktokProfileEmbed(profile: string) {
  }
 }
 
-export function tiktokEmbedMedia(html: string, embed: string) {
+export function tiktokEmbedPosts(html: string, embed: string): {url:string;source:string;cover:string|null}[] {
  const path = new URL(embed).pathname;
  const handle = path.match(/^\/embed\/@([\w.-]+)$/)?.[1]?.toLowerCase();
  const state = html.match(/<script\b[^>]*\bid=["']__FRONTITY_CONNECT_STATE__["'][^>]*>([\s\S]*?)<\/script>/i)?.[1];
@@ -20,11 +20,21 @@ export function tiktokEmbedMedia(html: string, embed: string) {
  try {
   const videos = JSON.parse(state)?.source?.data?.[path]?.videoList;
   if (!Array.isArray(videos)) return [];
-  return [...new Set<string>(videos.flatMap(item => {
-   if (item?.privateItem !== false || item?.authorUniqueId?.toLowerCase() !== handle || typeof item.playAddr !== 'string') return [];
-   return [item.playAddr];
-  }))].slice(0,10);
+  return videos.flatMap(item => {
+   if (item?.privateItem !== false || typeof item?.authorUniqueId!=='string' || item.authorUniqueId.toLowerCase() !== handle || typeof item.playAddr !== 'string'||typeof item.id!=='string'||!/^\d{10,25}$/.test(item.id)) return [];
+   return [{url:'https://www.tiktok.com/@'+handle+'/video/'+item.id,source:item.playAddr,cover:typeof item.coverUrl==='string'?item.coverUrl:null}];
+  }).slice(0,10);
  } catch { return []; }
+}
+export function tiktokEmbedMedia(html:string,embed:string){
+ return [...new Set(tiktokEmbedPosts(html,embed).map(post=>post.source))];
+}
+export function tiktokStreamKey(source:unknown){
+ try{
+  const u=new URL(String(source));
+  if(u.protocol!=='https:'||!/(?:\.)tiktokcdn(?:-us|-eu)?\.com$/.test(u.hostname))return null;
+  return u.pathname.match(/^\/[a-f0-9]{32}\/[a-f0-9]{8}(\/video\/tos\/[\w/-]+)$/i)?.[1]?.replace(/\/$/,'')||null;
+ }catch{return null}
 }
 
 export function publicSocialPosts(html: string, profile: string) {
