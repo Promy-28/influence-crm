@@ -2,7 +2,7 @@ import 'server-only';
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import {db} from './db';
 import {creatorReviewState} from './creator-progress';
-import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia} from './creator-cloud-policy';
+import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia,tiktokProfileEmbed,tiktokEmbedMedia} from './creator-cloud-policy';
 import {mediaSource} from './media-review';
 import {publicPortfolioMedia} from './jockey-review';
 import {POST as analyze} from '@/app/api/media-review/route';
@@ -37,7 +37,7 @@ async function portfolioHtml(url:string){
   const from=new URL(current);
   if(from.protocol!=='https:'||from.username||from.password||from.port)throw Error('PORTFOLIO_NOT_PUBLIC');
   if(!await publicPortfolioMedia(current,current))throw Error('PORTFOLIO_NOT_PUBLIC');
-  const r=await fetch(current,{redirect:'manual',signal:AbortSignal.timeout(5000),headers:{accept:'text/html'},cache:'no-store'});
+  const r=await fetch(current,{redirect:'manual',signal:AbortSignal.timeout(5000),headers:{accept:'text/html','user-agent':'Mozilla/5.0'},cache:'no-store'});
   if(r.status>=300&&r.status<400){
    const next=new URL(r.headers.get('location')||'',current);
    await r.body?.cancel();
@@ -69,7 +69,19 @@ async function discover(c:any,j:any){
   }
  };
  let discoveryError=links.length?'NO_PUBLIC_VIDEO_DISCOVERED':'NO_CREATOR_VIDEO_LINK';
+ let triedTikTokProfile=false;
  for(const p of links){
+  const embed=tiktokProfileEmbed(p);
+  if(embed){
+   triedTikTokProfile=true;
+   try{
+    const page=await portfolioHtml(embed);
+    if(page.url===embed){
+     const sample=findSample(tiktokEmbedMedia(page.html,embed),p);
+     if(sample)return sample;
+    }
+   }catch{ /* Continue with submitted links and the regular public page. */ }
+  }
   try{
    const {html,url}=await portfolioHtml(p);
    const platform=socialPlatform(new URL(url).hostname);
@@ -92,7 +104,7 @@ async function discover(c:any,j:any){
  for(const p of links.filter(p=>['canva.link','canva.com','www.canva.com'].includes(new URL(p).hostname)||new URL(p).hostname.endsWith('.my.canva.site')).slice(0,2)){
   try{for(const source of await renderPortfolioMedia(p))if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch(e){const code=e instanceof Error?e.message:'';discoveryError=/^PORTFOLIO_[A-Z_]+$/.test(code)?code:e instanceof Error&&e.name==='TimeoutError'?'SERVER_BROWSER_TIMEOUT':'SERVER_BROWSER_START_FAILED';console.error('creator_cloud_browser_failed',discoveryError,code.replace(/https?:\/\/\S+/g,'[url]').replace(/[A-Za-z0-9_-]{40,}/g,'[redacted]').slice(0,350))}
  }
- throw Error(discoveryError);
+ throw Error(discoveryError==='SOCIAL_VIDEO_SOURCE_REQUIRED'&&triedTikTokProfile?'TIKTOK_EMBED_NO_PLAYABLE_VIDEO':discoveryError);
 }
 async function processCloudJob(j:any){
  const {data:c,error}=await db.from('reddit_creator_directory').select('*').eq('id',j.creator_id).single();if(error||!c)throw Error('CREATOR_NOT_FOUND');
@@ -126,6 +138,14 @@ export async function runCloudQueue(){
  // Retry legacy discovery failures once. The new resolver reports different
  // codes so jobs with no public source do not loop or consume later batches.
  await db.from('creator_cloud_jobs').update({status:'queued',error:'TRY_PUBLIC_SOCIAL_VIDEO',next_at:new Date().toISOString()}).eq('status','blocked').is('source',null).in('error',['PUBLIC_PORTFOLIO_MEDIA_UNAVAILABLE','NEEDS_ACCESSIBLE_VIDEO_SOURCE','SERVER_BROWSER_UNAVAILABLE','SERVER_BROWSER_RUNTIME_FAILED','NEEDS_RENDERED_VIDEO_SOURCE']);
+ const {data:socialBlocked}=await db.from('creator_cloud_jobs').select('creator_id,reddit_creator_directory(payload)').eq('status','blocked').eq('error','SOCIAL_VIDEO_SOURCE_REQUIRED');
+ const tiktokIds=(socialBlocked||[]).filter((row:any)=>{
+  const payload=row.reddit_creator_directory?.payload;
+  return portfolioLinks([payload?.videos,payload?.profile].join(' ')).some(tiktokProfileEmbed);
+ }).map(row=>row.creator_id);
+ if(tiktokIds.length){
+  await db.from('creator_cloud_jobs').update({status:'queued',error:'TRY_TIKTOK_PROFILE_EMBED',next_at:new Date().toISOString()}).in('creator_id',tiktokIds).eq('status','blocked').eq('error','SOCIAL_VIDEO_SOURCE_REQUIRED');
+ }
  const rejectedCodes=['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_FILE_SIZE_UNSUPPORTED'];
  const {data:rejected}=await db.from('creator_cloud_jobs').select('creator_id,source,error').eq('status','blocked').eq('samples','[]').not('source','is',null).in('error',rejectedCodes).limit(20);
  await Promise.all((rejected||[]).map(job=>db.from('creator_cloud_jobs').update({

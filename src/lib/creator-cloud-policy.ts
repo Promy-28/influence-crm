@@ -4,6 +4,29 @@ export function socialPlatform(host: string) {
  if (['tiktok.com', 'www.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com'].includes(host)) return 'tiktok';
 }
 
+export function tiktokProfileEmbed(profile: string) {
+ const url = new URL(profile);
+ const handle = url.pathname.match(/^\/@([\w.-]+)\/?$/)?.[1];
+ if (socialPlatform(url.hostname) === 'tiktok' && url.protocol === 'https:' && !url.username && !url.password && !url.port && handle) {
+  return 'https://www.tiktok.com/embed/@' + handle;
+ }
+}
+
+export function tiktokEmbedMedia(html: string, embed: string) {
+ const path = new URL(embed).pathname;
+ const handle = path.match(/^\/embed\/@([\w.-]+)$/)?.[1]?.toLowerCase();
+ const state = html.match(/<script\b[^>]*\bid=["']__FRONTITY_CONNECT_STATE__["'][^>]*>([\s\S]*?)<\/script>/i)?.[1];
+ if (!handle || !state) return [];
+ try {
+  const videos = JSON.parse(state)?.source?.data?.[path]?.videoList;
+  if (!Array.isArray(videos)) return [];
+  return [...new Set<string>(videos.flatMap(item => {
+   if (item?.privateItem !== false || item?.authorUniqueId?.toLowerCase() !== handle || typeof item.playAddr !== 'string') return [];
+   return [item.playAddr];
+  }))].slice(0,10);
+ } catch { return []; }
+}
+
 export function publicSocialPosts(html: string, profile: string) {
  const parent = new URL(profile);
  const platform = socialPlatform(parent.hostname);

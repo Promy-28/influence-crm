@@ -15,7 +15,8 @@ export class MediaReviewError extends Error {
   constructor(code: string) { super(code); this.code = code; }
 }
 const fail = (code: string): never => { throw new MediaReviewError(code); };
-const socialMediaHost = (host: string) => ['.tiktokcdn.com','.cdninstagram.com','.fbcdn.net'].some(suffix=>host.endsWith(suffix));
+const tiktokMediaHost = (host: string) => ['.tiktokcdn.com','.tiktokcdn-us.com','.tiktokcdn-eu.com'].some(suffix=>host.endsWith(suffix));
+const socialMediaHost = (host: string) => tiktokMediaHost(host)||['.cdninstagram.com','.fbcdn.net'].some(suffix=>host.endsWith(suffix));
 export async function boundedVideoBytes(body: ReadableStream<Uint8Array> | null, limit = 32*1024*1024): Promise<Uint8Array<ArrayBuffer>> {
   if(!body)return fail('MEDIA_FILE_SIZE_UNSUPPORTED');
   const reader=body.getReader(),chunks:Uint8Array[]=[];let total=0;
@@ -39,8 +40,9 @@ export function mediaSource(value: string, parentUrl?: string): string {
     return "https://drive.google.com/uc?export=download&id=" + id;
   }
   let samePortfolio=false;if(parentUrl)try{const p=new URL(/^https?:\/\//i.test(parentUrl)?parentUrl:'https://'+parentUrl);samePortfolio=p.hostname.replace(/^www\./,'')===h.replace(/^www\./,'')}catch{}
-  const allowed = samePortfolio || h.endsWith('.my.canva.site') || (h==='media-public.canva.com'||h==='media.canva.com') || h.endsWith('.pages.dev') || h==='firebasestorage.googleapis.com' || h.endsWith(".supabase.co") || h.endsWith(".tiktokcdn.com") || h.endsWith(".cdninstagram.com") || h.endsWith(".fbcdn.net");
-  if (!allowed || !/\.(mp4|webm|mov)$/i.test(u.pathname)) return fail("MEDIA_LINK_NEEDS_VIDEO");
+  const allowed = samePortfolio || h.endsWith('.my.canva.site') || (h==='media-public.canva.com'||h==='media.canva.com') || h.endsWith('.pages.dev') || h==='firebasestorage.googleapis.com' || h.endsWith(".supabase.co") || socialMediaHost(h);
+  const tiktokStream=tiktokMediaHost(h)&&/^\/[a-f0-9]{32}\/[a-f0-9]{8}\/video\/tos\/[\w/-]+\/?$/i.test(u.pathname);
+  if (!allowed || (!/\.(mp4|webm|mov)$/i.test(u.pathname)&&!tiktokStream)) return fail("MEDIA_LINK_NEEDS_VIDEO");
   return u.href;
 }
 function text(v: unknown, max = 900): string {

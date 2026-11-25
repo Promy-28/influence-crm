@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {embeddedMedia,cloudAssessment,portfolioLinks,publicSocialPosts,socialPostMedia} from '../src/lib/creator-cloud-policy.ts';
+import {embeddedMedia,cloudAssessment,portfolioLinks,publicSocialPosts,socialPostMedia,tiktokProfileEmbed,tiktokEmbedMedia} from '../src/lib/creator-cloud-policy.ts';
+import {mediaSource} from '../src/lib/media-review.ts';
 import {mergeDirectoryPayload} from '../src/lib/reddit-intake.ts';
 test('portfolio discovery retains source binding and rejects unrelated media',()=>{
  assert.deepEqual(embeddedMedia('<video src="/_assets/video/abc.mp4"></video><video src="https://evil.example/file.mp4">','https://creator.my.canva.site/'),['https://creator.my.canva.site/_assets/video/abc.mp4']);
@@ -27,4 +28,16 @@ test('stale cloud bridge cannot overwrite newer autonomous assessment',()=>{
  const assessment={at:'2026-11-25T12:00:00Z',decision:'maybe'};
  const merged=mergeDirectoryPayload({sourceFingerprint:'a',autonomousReview:{fingerprint:'a',assessment,at:assessment.at}},{assessment:{at:'2026-11-24T12:00:00Z',decision:'unverified'},reviewSourceFingerprint:'a'});
  assert.equal(merged.assessment.decision,'maybe');
+});
+test('TikTok profile embed accepts public videos belonging to the submitted handle',()=>{
+ const profile='https://tiktok.com/@sample';
+ const path='/embed/@sample';
+ const embed=tiktokProfileEmbed(profile)!;
+ assert.equal(embed,'https://www.tiktok.com'+path);
+ const stream='https://v16m.tiktokcdn-us.com/948910770206ebd399daeb94704f3caf/6b09770c/video/tos/useast5/tos-useast5-ve-0068c001-tx/example/?token=value';
+ const video={authorUniqueId:'sample',privateItem:false,playAddr:stream};
+ const state={source:{data:{[path]:{videoList:[video,{...video,privateItem:true,playAddr:'private'},{...video,authorUniqueId:'other',playAddr:'other'}]}}}};
+ assert.deepEqual(tiktokEmbedMedia('<script id="__FRONTITY_CONNECT_STATE__">'+JSON.stringify(state)+'</script>',embed),[stream]);
+ assert.equal(mediaSource(stream,profile),stream);
+ assert.throws(()=>mediaSource(stream.replace('tiktokcdn-us.com','unrelated.example'),profile));
 });
