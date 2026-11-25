@@ -12,3 +12,13 @@ export function tiktokPlayer(value:unknown){
  const id=u.pathname.match(/^\/@[^/]+\/video\/(\d{10,25})\/?$/)?.[1];
  return id?'https://www.tiktok.com/player/v1/'+id+'?autoplay=0&controls=1&description=0&music_info=0':null;
 }
+export function postCoverKey(value:unknown){
+ const tiktok=tiktokPlayer(value);
+ if(tiktok)return new URL(tiktok).pathname.split('/').at(-1)||null;
+ const url=publicHttps(value);
+ if(!url)return null;
+ const u=new URL(url);
+ if(u.port||!['instagram.com','www.instagram.com'].includes(u.hostname))return null;
+ const shortcode=u.pathname.match(/^\/(?:p|reel|tv)\/([\w-]{5,32})\/?$/)?.[1];
+ return shortcode?'ig-'+shortcode:null;
+}

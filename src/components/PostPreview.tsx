@@ -6,7 +6,7 @@ export default function PostPreview({post,platform,caption,meta}:{post:{url:stri
  const dialog=useRef<HTMLDialogElement>(null),frame=useRef<HTMLIFrameElement>(null),player=tiktokPlayer(post.url),original=publicHttps(post.url);
  const [broken,setBroken]=useState(false),[active,setActive]=useState(false),[videoError,setVideoError]=useState(false);
  useEffect(()=>{if(!active||!player)return;const onMessage=(event:MessageEvent)=>{if(event.origin==='https://www.tiktok.com'&&event.source===frame.current?.contentWindow&&event.data?.['x-tiktok-player']===true&&['onPlayerError','onError'].includes(event.data.type))setVideoError(true)};window.addEventListener('message',onMessage);return()=>window.removeEventListener('message',onMessage)},[active,player]);
- const savedCover=typeof post.cover==='string'&&/^\/api\/creator-tiktok\/cover\/\d{10,25}$/.test(post.cover)?post.cover:null;
+ const savedCover=typeof post.cover==='string'&&/^\/api\/creator-tiktok\/cover\/(?:\d{10,25}|ig-[\w-]{5,32})$/.test(post.cover)?post.cover:null;
  const cover=savedCover||publicHttps(post.cover),coverExpired=!savedCover&&expiredPostAsset(cover),direct=publicHttps(post.media_url);
  const canDirect=!!direct&&!expiredPostAsset(direct),hasCover=!!cover&&!coverExpired&&!broken;
  const open=()=>{setVideoError(false);setActive(true);dialog.current?.showModal()};

@@ -1,7 +1,7 @@
 import 'server-only';
 import {db} from './db';
 import {portfolioLinks,tiktokEmbedPosts,tiktokProfileEmbed,tiktokStreamKey} from './creator-cloud-policy';
-import {tiktokPlayer} from './post-preview';
+import {expiredPostAsset,postCoverKey,publicHttps,tiktokPlayer} from './post-preview';
 
 export const coverBucket='creator-tiktok-covers';
 const imageLimit=256*1024;
@@ -13,7 +13,8 @@ async function saveCover(id:string,cover:string|null){
   if(existing?.data)return '/api/creator-tiktok/cover/'+id;
   if(!cover)return;
   const url=new URL(cover);
-  if(url.protocol!=='https:'||url.username||url.password||url.port||!/[.]tiktokcdn(?:-us|-eu)?[.]com$/.test(url.hostname))return;
+  const allowed=id.startsWith('ig-')?/[.](?:cdninstagram[.]com|fbcdn[.]net)$/:/[.]tiktokcdn(?:-us|-eu)?[.]com$/;
+  if(url.protocol!=='https:'||url.username||url.password||url.port||!allowed.test(url.hostname))return;
   const response=await fetch(url,{redirect:'error',headers:{'user-agent':'Mozilla/5.0','accept':'image/jpeg,image/webp,image/png'},signal:AbortSignal.timeout(4000)});
   if(!response.ok||!response.body||!/^image\/(jpeg|webp|png)(?:;|$)/i.test(response.headers.get('content-type')||''))return;
   const reader=response.body.getReader(),chunks:Uint8Array[]=[];
@@ -33,6 +34,55 @@ async function saveCover(id:string,cover:string|null){
   if(!error)return '/api/creator-tiktok/cover/'+id;
   console.warn('creator_tiktok_cover_upload_failed');
  }catch{console.warn('creator_tiktok_cover_unavailable')}
+}
+
+async function publicPostCover(postUrl:string,key:string){
+ const url=new URL(postUrl);
+ url.hostname=key.startsWith('ig-')?'www.instagram.com':'www.tiktok.com';
+ url.search='';
+ url.hash='';
+ const response=await fetch(url,{headers:{'user-agent':'Mozilla/5.0'},redirect:'error',signal:AbortSignal.timeout(4500)});
+ if(!response.ok)return null;
+ const html=await response.text();
+ if(html.length>2000000)return null;
+ for(const match of html.matchAll(/<meta\s[^>]*>/gi)){
+  const attrs=new Map([...match[0].matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g)].map(m=>[m[1].toLowerCase(),m[3]]));
+  if(attrs.get('property')?.toLowerCase()==='og:image'){
+   return publicHttps(attrs.get('content')?.replace(/&amp;/g,'&'));
+  }
+ }
+ return null;
+}
+
+export async function apifyPostCovers(creatorId:string){
+ const {data}=await db.from('creators').select('recent_posts,handle,platform').eq('id',creatorId).eq('source','apify').maybeSingle();
+ if(!data||!Array.isArray(data.recent_posts))return {};
+ const posts=data.recent_posts.slice(0,6).flatMap((post:any)=>{
+  const key=postCoverKey(post?.url);
+  return key?[{key,url:String(post.url),cover:typeof post.cover==='string'?post.cover:null}]:[];
+ }) as {key:string;url:string;cover:string|null}[];
+ const covers=await Promise.all(posts.map(post=>saveCover(post.key,expiredPostAsset(post.cover)?null:post.cover)));
+ const fresh=new Map<string,string>();
+ if(covers.some((cover,i)=>!cover&&!posts[i].key.startsWith('ig-'))&&/^[\w.-]+$/.test(data.handle||'')){
+  try{
+   const embed=tiktokProfileEmbed('https://www.tiktok.com/@'+data.handle);
+   if(embed){
+    const response=await fetch(embed,{headers:{'user-agent':'Mozilla/5.0'},redirect:'error',signal:AbortSignal.timeout(4500)});
+    const html=response.ok?await response.text():'';
+    if(html.length<=2000000)for(const post of tiktokEmbedPosts(html,embed)){
+     const key=postCoverKey(post.url);
+     if(key&&post.cover)fresh.set(key,post.cover);
+    }
+   }
+  }catch{ /* Fall back to the exact public post. */ }
+ }
+ return Object.fromEntries(await Promise.all(posts.map(async (post,i)=>{
+  if(covers[i])return [post.key,covers[i]];
+  try{
+   const source=fresh.get(post.key)||await publicPostCover(post.url,post.key);
+   return [post.key,await saveCover(post.key,source)];
+  }catch{return [post.key,null]}
+ })));
 }
 
 export async function creatorTikTokPosts(creatorId:string){

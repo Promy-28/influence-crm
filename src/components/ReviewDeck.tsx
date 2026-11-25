@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { decide } from "@/lib/actions";
 import PostPreview from './PostPreview';
+import {postCoverKey} from '@/lib/post-preview';
 
 export type Card = {
   id: string; platform: string; handle: string; name: string | null; bio: string | null; email: string | null; email_source: string | null;
@@ -24,6 +25,18 @@ export function ReviewDeck({ initial, flagText }: { initial: Card[]; flagText?: 
   const [err, setErr] = useState("");
   const [, start] = useTransition();
   const c = list[i];
+  const activeId=c?.id;
+  const [savedCovers,setSavedCovers]=useState<Record<string,Record<string,string|null>>>({});
+  useEffect(()=>{
+    if(!activeId)return;
+    const controller=new AbortController();
+    void fetch('/api/apify-post-covers/'+activeId,{signal:controller.signal}).then(async response=>{
+      if(!response.ok)return;
+      const covers:Record<string,string|null>=await response.json();
+      if(!controller.signal.aborted)setSavedCovers(previous=>({...previous,[activeId]:covers}));
+    }).catch(()=>{ /* Original cover and player remain available. */ });
+    return ()=>controller.abort();
+  },[activeId]);
 
   const act = useCallback((d: "approved" | "rejected", reason?: string) => {
     if (!c) return;
@@ -79,7 +92,10 @@ export function ReviewDeck({ initial, flagText }: { initial: Card[]; flagText?: 
       </div>
       {(c.ai_reasons || c.rule_flags.some((f) => ft[f])) && <div className="ai"><b>AI:</b> {c.ai_reasons ?? "ещё не оценил"}{c.rule_flags.filter((f) => ft[f]).map((f) => <span key={f} className="tag warn" style={{ marginLeft: 6 }}>{ft[f]}</span>)}{c.ai_line && <div className="muted" style={{ marginTop: 6, fontSize: 12.5 }}>Первая строка письма: «{c.ai_line}»</div>}</div>}
       <p className="review-media-note">Оценка AI выше — по био, подписям и данным профиля. Она не подтверждает просмотр видео и проверку речи. Ролики можно открыть ниже без платного пересбора.</p>
-      <div className="posts">{c.recent_posts.slice(0, 6).map((p) => <PostPreview key={p.url} post={p} platform={c.platform} caption={p.caption||'без подписи'} meta={`${n(p.views)} просм. · ${ago(p.at)}`}/>)}</div>
+      <div className="posts">{c.recent_posts.slice(0, 6).map(p=>{
+        const cover=savedCovers[c.id]?.[postCoverKey(p.url)||'']||p.cover;
+        return <PostPreview key={p.url+'|'+cover} post={{...p,cover}} platform={c.platform} caption={p.caption||'без подписи'} meta={`${n(p.views)} просм. · ${ago(p.at)}`}/>;
+      })}</div>
       {rejecting ? <div className="flex flex-col gap-2"><b>Почему не подходит? Нажми цифру</b><div className="reasons">{REASONS.map((r, k) => <button key={r} className="btn" onClick={() => act("rejected", r)}><span className="kbd">{k + 1}</span> {r}</button>)}<button className="btn" onClick={() => setRejecting(false)}>Отмена <span className="kbd">Esc</span></button></div></div>
         : <div className="row" style={{ gap: 10 }}><button className="btn-p big-btn" onClick={() => act("approved")}>Писать <span className="kbd" style={{ marginLeft: 6 }}>A</span></button><button className="btn-bad big-btn" onClick={() => setRejecting(true)}>Не подходит <span className="kbd" style={{ marginLeft: 6 }}>R</span></button><button className="btn" onClick={skip}>Пропустить <span className="kbd">S</span></button><button className="btn" onClick={undo} disabled={!history.length}>Отменить <span className="kbd">Z</span></button><a className="btn" href={c.profile_url ?? "#"} target="_blank" rel="noreferrer">Открыть профиль <span className="kbd">O</span></a></div>}
     </section>
