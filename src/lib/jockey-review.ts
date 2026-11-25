@@ -28,7 +28,7 @@ export async function runJockeyReview(opts:{apiKey:string;freePlanConfirmed:bool
  const source=mediaSource(opts.source,opts.parentUrl),s=opts.state;
  const host=new URL(source).hostname;
  const drive=host==='drive.google.com';
- const direct=drive||host.endsWith('.my.canva.site')||host==='media-public.canva.com'||host.endsWith('.pages.dev')||host==='firebasestorage.googleapis.com'||host.endsWith('.tiktokcdn.com')||host.endsWith('.cdninstagram.com')||host.endsWith('.fbcdn.net');
+ const direct=drive||host.endsWith('.my.canva.site')||(host==='media-public.canva.com'||host==='media.canva.com')||host.endsWith('.pages.dev')||host==='firebasestorage.googleapis.com'||host.endsWith('.tiktokcdn.com')||host.endsWith('.cdninstagram.com')||host.endsWith('.fbcdn.net');
  if(!direct&&!await publicPortfolioMedia(source,opts.parentUrl,opts.resolveHost))throw Error('MEDIA_JOCKEY_DIRECT_SOURCE_REQUIRED');
  if(s.source!==source)throw Error('MEDIA_JOCKEY_SOURCE_MISMATCH');
  if(s.result)return s.result;
