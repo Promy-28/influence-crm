@@ -73,7 +73,8 @@ export async function creatorTikTokPosts(creatorId:string){
   const posts=shown.map(({url,streamKey})=>({url,streamKey}));
   const unchanged=posts.length===cached?.posts?.length&&posts.every((post,i)=>post.url===cached.posts[i]?.url&&post.streamKey===cached.posts[i]?.streamKey);
   if(!unchanged){
-   await db.from('creator_tiktok_posts').upsert({creator_id:creatorId,fingerprint,posts}).catch(()=>console.warn('creator_tiktok_posts_cache_failed'));
+   try{await db.from('creator_tiktok_posts').upsert({creator_id:creatorId,fingerprint,posts});}
+   catch{console.warn('creator_tiktok_posts_cache_failed');}
   }
  }
  return Promise.all(shown.map(async post=>{
