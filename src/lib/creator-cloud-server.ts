@@ -52,11 +52,11 @@ async function discover(c:any,j:any){
  const ordered=[...(cached||[])].sort((a:any,b:any)=>Number(!!b.result?.audioReviewed&&b.result?.englishSpeech===true)-Number(!!a.result?.audioReviewed&&a.result?.englishSpeech===true));
  for(const x of ordered){const parent=links.find(p=>{try{return new URL(p).hostname===new URL(x.source).hostname||(['canva.link','www.canva.com'].includes(new URL(p).hostname)&&new URL(x.source).hostname==='media.canva.com')}catch{return false}});if(parent&&!j.samples.includes(x.source))return {source:x.source,parentUrl:parent}}
  for(const p of links){try{const source=mediaSource(p,p);if(!j.samples.includes(source))return {source,parentUrl:p}}catch{}}
- let discoveryError='NEEDS_RENDERED_VIDEO_SOURCE';
+ let discoveryError='PUBLIC_PORTFOLIO_MEDIA_UNAVAILABLE';
  for(const p of links.slice(0,3)){
   if(/(?:instagram|tiktok|photos\.icloud)\.com/.test(new URL(p).hostname))continue;
   try{const media=await portfolioHtml(p);for(const source of media)if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch{}
-  try{for(const source of await renderPortfolioMedia(p))if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch(e){const code=e instanceof Error?e.message:'';discoveryError=/^PORTFOLIO_[A-Z_]+$/.test(code)?code:e instanceof Error&&e.name==='TimeoutError'?'SERVER_BROWSER_TIMEOUT':'SERVER_BROWSER_RUNTIME_FAILED';console.error('creator_cloud_browser_failed',discoveryError,code.replace(/https?:\/\/\S+/g,'[url]').replace(/[A-Za-z0-9_-]{40,}/g,'[redacted]').slice(0,350))}
+  try{for(const source of await renderPortfolioMedia(p))if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch(e){const code=e instanceof Error?e.message:'';discoveryError=/^PORTFOLIO_[A-Z_]+$/.test(code)?code:e instanceof Error&&e.name==='TimeoutError'?'SERVER_BROWSER_TIMEOUT':'SERVER_BROWSER_START_FAILED';console.error('creator_cloud_browser_failed',discoveryError,code.replace(/https?:\/\/\S+/g,'[url]').replace(/[A-Za-z0-9_-]{40,}/g,'[redacted]').slice(0,350))}
  }
  throw Error(discoveryError);
 }
@@ -79,13 +79,16 @@ async function processCloudJob(j:any){
    await save({status:'completed',error:null});return;
   }
   const code=String(r.error||r.status||'MEDIA_UNAVAILABLE').slice(0,120),temporary=r.deferred||['processing','hourly_limit'].includes(r.status)||response.status>=500||response.status===429;
-  await save({status:temporary?'processing':'blocked',error:code,next_at:new Date(Date.now()+(r.status==='hourly_limit'?3600000:temporary?600000:86400000)).toISOString()});
+  await save({status:temporary?'processing':'blocked',error:code,next_at:new Date(Date.now()+(r.status==='hourly_limit'?3600000:r.status==='processing'?60000:temporary?600000:86400000)).toISOString()});
  }catch(e){await save({status:'blocked',error:e instanceof Error?e.message.slice(0,120):'QUEUE_JOB_FAILED',next_at:new Date(Date.now()+86400000).toISOString()})}
 }
 export async function runCloudQueue(){
+ // Resume file preparation without waiting ten minutes or reuploading the video.
+ await db.from('creator_cloud_jobs').update({next_at:new Date().toISOString()}).eq('status','processing').eq('error','processing').gt('next_at',new Date(Date.now()+60000).toISOString());
  // One-time upgrade of jobs previously blocked by the HTML-only resolver.
- const {data:old}=await db.from('creator_cloud_jobs').select('creator_id').eq('status','blocked').in('error',['NEEDS_ACCESSIBLE_VIDEO_SOURCE','SERVER_BROWSER_UNAVAILABLE']);
- if(old?.length){const {data:rows}=await db.from('reddit_creator_directory').select('id,payload').in('id',old.map((j:any)=>j.creator_id));const ids=(rows||[]).filter((c:any)=>/canva\.(link|site|com)/i.test(c.payload.videos||'')).map((c:any)=>c.id);if(ids.length)await db.from('creator_cloud_jobs').update({status:'queued',error:'RENDERER_UPGRADE_RETRY',next_at:new Date().toISOString()}).in('creator_id',ids).eq('status','blocked').in('error',['NEEDS_ACCESSIBLE_VIDEO_SOURCE','SERVER_BROWSER_UNAVAILABLE'])}
+ const {data:old}=await db.from('creator_cloud_jobs').select('creator_id').eq('status','blocked').in('error',['NEEDS_ACCESSIBLE_VIDEO_SOURCE','SERVER_BROWSER_UNAVAILABLE','SERVER_BROWSER_RUNTIME_FAILED','NEEDS_RENDERED_VIDEO_SOURCE']);
+ if(old?.length){const {data:rows}=await db.from('reddit_creator_directory').select('id,payload').in('id',old.map((j:any)=>j.creator_id));const ids=(rows||[]).filter((c:any)=>/canva\.(link|site|com)/i.test(c.payload.videos||'')).map((c:any)=>c.id);if(ids.length)await db.from('creator_cloud_jobs').update({status:'queued',error:'RENDERER_UPGRADE_RETRY',next_at:new Date().toISOString()}).in('creator_id',ids).eq('status','blocked').in('error',['NEEDS_ACCESSIBLE_VIDEO_SOURCE','SERVER_BROWSER_UNAVAILABLE','SERVER_BROWSER_RUNTIME_FAILED','NEEDS_RENDERED_VIDEO_SOURCE'])}
  const {data:jobs,error}=await db.rpc('claim_creator_cloud_jobs');if(error)throw Error('QUEUE_CLAIM_FAILED');
  await Promise.all((jobs||[]).map(processCloudJob));return {handled:jobs?.length||0,...await cloudQueueStatus()};
 }
+

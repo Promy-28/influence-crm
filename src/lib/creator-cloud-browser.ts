@@ -1,12 +1,15 @@
 import 'server-only';
 import {publicPortfolioMedia} from './jockey-review';
+let executable:Promise<string>|undefined;
 // Public portfolio playback on Vercel, never the owner's PC or an authenticated cookie export.
 // No paid browser service; stop on access challenges instead of attempting to solve them.
 export async function renderPortfolioMedia(parentUrl:string){
  const host=new URL(parentUrl).hostname;
  if(!['canva.link','canva.com','www.canva.com'].includes(host)&&!host.endsWith('.my.canva.site'))return [];
  const [{default:chromium},{default:puppeteer}]=await Promise.all([import('@sparticuz/chromium'),import('puppeteer-core')]);
- const browser=await puppeteer.launch({args:chromium.args,executablePath:await chromium.executablePath(),headless:true});
+ const executablePath=await (executable??=chromium.executablePath().catch(e=>{executable=undefined;throw e}));
+ const launch=()=>puppeteer.launch({args:chromium.args,executablePath,headless:true});
+ let browser;try{browser=await launch()}catch(e){if(!(e instanceof Error)||!e.message.includes('ETXTBSY'))throw e;await new Promise(r=>setTimeout(r,1000));browser=await launch()}
  try{
   const page=await browser.newPage();await page.setViewport({width:1280,height:900});
   const media=new Set<string>(),hosts=new Map<string,boolean>();
