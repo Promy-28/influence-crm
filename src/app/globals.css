@@ -266,3 +266,9 @@ details.set { padding:16px 18px; } details.set > summary { cursor:pointer; font:
 .hub-mail{height:calc(100dvh - 260px);min-height:560px;max-height:1100px}.hub-mail-list{max-height:none;min-height:0}.hub-mail-thread{height:100%;min-height:0;overflow-y:auto;overscroll-behavior:contain}.hub-mail-list{overscroll-behavior:contain}@media(max-width:720px){.hub-mail{height:auto;min-height:0;max-height:none}.hub-mail-list{max-height:230px}.hub-mail-thread{height:auto;max-height:75dvh}}
 
 .hub-mail-thread{position:relative}.mail-thread-loading{position:sticky;top:0;z-index:4;padding:12px 20px;background:#f0edff;color:#603dff;font-size:12px;font-weight:600}.mail-thread-content.is-loading{opacity:.45;pointer-events:none}.mail-thread-content{min-height:100%}
+
+.mail-draft-action{display:grid;gap:8px;justify-items:start}
+.mail-draft-action .btn-p{display:inline-flex;align-items:center;min-height:36px;white-space:normal}
+.draft-thread-dialog{position:fixed;inset:0;margin:auto;padding:0;width:min(760px,calc(100% - 32px));max-height:calc(100dvh - 32px);border:1px solid var(--line);border-radius:18px;background:white;color:inherit;overscroll-behavior:contain}
+.draft-thread-dialog::backdrop{background:rgb(18 16 34 / 55%)}
+.draft-thread-dialog .hub-messages{overscroll-behavior:contain}

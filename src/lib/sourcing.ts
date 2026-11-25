@@ -1,3 +1,4 @@
+import {storeApifyPostCovers} from "./creator-tiktok";
 import "server-only";
 import { all, db, log } from "./db";
 import { getSettings, dailyNew, type Settings } from "./settings";
@@ -146,6 +147,11 @@ async function enqueue(platform: string, list: { handle: string; query_id: strin
 // Saves checked profiles. Known accounts get fresh numbers but keep their status; known emails are never added twice.
 export async function ingest(ps: Profile[], s: Settings, ctx: { runId?: string; queryOf?: (h: string) => string | null; source?: string }) {
   let added = 0, rejected = 0, updated = 0, dupes = 0;
+  const coverWrites: Promise<unknown>[] = [];
+  const storeCovers = async (handle: string, posts: Profile["posts"]) => {
+    coverWrites.push(storeApifyPostCovers(handle, posts).catch(() => console.warn("apify_post_cover_ingest_failed")));
+    if (coverWrites.length >= 16) await Promise.all(coverWrites.splice(0));
+  };
   for (const p of ps) {
     const c = check(p, s);
     const row = {
@@ -155,14 +161,18 @@ export async function ingest(ps: Profile[], s: Settings, ctx: { runId?: string; 
       verified: p.verified ?? null, private: p.private ?? null, last_post_at: c.last_post_at, posts_7d: c.posts_7d, avg_views: c.avg_views,
       recent_posts: p.posts.slice(0, 6), languages: c.languages, rule_flags: c.flags,
     };
-    const { data: had } = await db.from("creators").select("id,email,review_status").eq("platform", p.platform).eq("handle", p.handle).maybeSingle();
-    if (had) { await db.from("creators").update({ ...row, email: had.email ?? c.email, email_source: had.email ? undefined : c.email_source }).eq("id", had.id); updated++; continue; }
+    const { data: had } = await db.from("creators").select("id,email,review_status,source").eq("platform", p.platform).eq("handle", p.handle).maybeSingle();
+    if (had) { await db.from("creators").update({ ...row, email: had.email ?? c.email, email_source: had.email ? undefined : c.email_source }).eq("id", had.id); if (had.source === "apify" && had.review_status === "pending") await storeCovers(p.handle, row.recent_posts); updated++; continue; }
     if (c.email) { const { data: same } = await db.from("creators").select("id,other_links").ilike("email", c.email).maybeSingle(); if (same) { await db.from("creators").update({ other_links: { ...(same.other_links as object), [p.platform]: row.profile_url } }).eq("id", same.id); dupes++; continue; } }
     if (c.reject === "no_email") { rejected++; continue; } // nothing to send to: not worth a row
     const status = c.reject ? "auto_rejected" : "pending";
     await db.from("creators").insert({ ...row, email: c.email, email_source: c.email_source, source: ctx.source ?? "apify", run_id: ctx.runId ?? null, query_id: ctx.queryOf?.(p.handle) ?? null, review_status: status, reject_reason: c.reject ? `auto:${c.reject}` : null });
-    if (c.reject) rejected++; else added++;
+    if (c.reject) rejected++; else {
+      added++;
+      if ((ctx.source ?? "apify") === "apify") await storeCovers(p.handle, row.recent_posts);
+    }
   }
+  await Promise.all(coverWrites);
   return { added, rejected, updated, dupes };
 }
 
