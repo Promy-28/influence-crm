@@ -1,5 +1,5 @@
 import {needsDraftRefresh,refreshInstruction} from './draft-refresh-policy';
-import {CREATOR_POLICY_VERSION,prematurePricing,deferDraftPricing,deferPricingSummary} from './creator-policy';
+import {CREATOR_POLICY_VERSION,prematurePricing,deferDraftPricing,deferPricingSummary,pricingDeferred} from './creator-policy';
 import {cleanOwnerSummary} from './writing-style';
 import {replyCoverageIssue,questionCoverage} from './reply-coverage';
 import {regenerationSnapshot} from './draft-regeneration';
@@ -31,7 +31,7 @@ export async function draftWorkspace(source:MailSource='reddit'){
  const saved=scopedDecisions.filter(d=>d.status==='needs_decision').map(d=>({...d,status:'completed'}));
  const savedIds=new Set(scopedDecisions.map(d=>(d.kind||'reply')+':'+d.emailId));
  const jobs=(queue?.items||[]).filter((j:any)=>j.source==='hub_batch'&&sourceMatches(j,source)&&(j.status!=='completed'||!j.draftId&&!savedIds.has((j.kind||'reply')+':'+j.emailId))).map((j:any)=>({id:j.id,kind:j.kind,emailId:j.emailId,creatorId:j.creatorId||null,status:j.status,answer:j.answer||'',error:j.prepareError||'',context:j.hubContext||null,requiresClarification:!!j.requiresClarification}));
- return {drafts:visible.map(d=>({...d,summary:cleanOwnerSummary(d.summary||''),coverage:questionCoverage(d.incomingText,d.replyContent),coverageIssue:d.kind==='followup'?null:replyCoverageIssue(d.incomingText,d.replyContent),campaignIds:campaignIds(d),briefContext:d.briefContext||briefEvidence(history.emails.filter((e:any)=>e.campaign_id===d.campaign&&e.eaccount===d.eaccount&&(e.thread_id===d.threadId||String(e.lead||e.to_address_email_list||'').toLowerCase()===d.recipient?.toLowerCase()))),safetyIssue:d.contextVersion!==3||!d.conversationFingerprint?'Черновик создан без актуальной проверки всей переписки. Уже ставим на автоматическую проверку по текущей истории. Можно запустить «Проверить и обновить все». Текст и ручные правки сохранены.':null,ready:readyDraft(d),editable:editableDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs].map(j=>({...j,campaignIds:[...(membership.get(String(j.context?.recipient||'').toLowerCase())||[])]})),mailSource:source,focus:source==='apify'?'Apify · TikTok / Instagram':MAIL_FOCUS.label};
+ return {drafts:visible.map(d=>({...d,summary:cleanOwnerSummary(d.summary||''),coverage:questionCoverage(d.incomingText,d.replyContent,pricingDeferred(d.briefContext)),coverageIssue:d.kind==='followup'?null:replyCoverageIssue(d.incomingText,d.replyContent,pricingDeferred(d.briefContext)),campaignIds:campaignIds(d),briefContext:d.briefContext||briefEvidence(history.emails.filter((e:any)=>e.campaign_id===d.campaign&&e.eaccount===d.eaccount&&(e.thread_id===d.threadId||String(e.lead||e.to_address_email_list||'').toLowerCase()===d.recipient?.toLowerCase()))),safetyIssue:d.contextVersion!==3||!d.conversationFingerprint?'Черновик создан без актуальной проверки всей переписки. Уже ставим на автоматическую проверку по текущей истории. Можно запустить «Проверить и обновить все». Текст и ручные правки сохранены.':null,ready:readyDraft(d),editable:editableDraft(d),approval:approvalToken(d,process.env.APP_PASSWORD!)})),jobs:[...saved,...jobs].map(j=>({...j,campaignIds:[...(membership.get(String(j.context?.recipient||'').toLowerCase())||[])]})),mailSource:source,focus:source==='apify'?'Apify · TikTok / Instagram':MAIL_FOCUS.label};
 }
 export async function queueDraftBatch(limit=30,source:MailSource='reddit'){
  if(source==='apify'){const env=environment(),r=runtime(env),[candidates,w,q]=await Promise.all([apifyCandidates(),draftWorkspace(source),loadRecord(env,'agent_jobs')]);const blocked=new Set(w.drafts.filter((d:any)=>['draft','sending','uncertain','sent'].includes(d.status)).map((d:any)=>d.emailId));let queued=0;for(const c of candidates){if(queued>=Math.max(1,Math.min(30,Math.floor(limit)||30)))break;if(c.inst_reply_uuid&&blocked.has(c.inst_reply_uuid)||(q?.items||[]).some((j:any)=>j.creatorId===c.id&&j.mailSource==='apify'&&(j.status==='new'||!c.inst_reply_uuid||j.emailId===c.inst_reply_uuid)))continue;await r.enqueueJob({id:'batch:'+crypto.randomUUID(),source:'hub_batch',mailSource:'apify',creatorId:c.id,emailId:c.inst_reply_uuid||(await liveApifyConversation(env,c.id)).context.canonical.id,text:'Подготовь уместный ответ на последнее входящее креатора Apify. Дай краткое пояснение по-русски. Если требуются цена, бриф или решение владельца, спроси его; не выдумывай условия.'});queued++}return {queued}}
@@ -58,7 +58,7 @@ export async function editWorkspaceDraft(id:string,token:unknown,body:string,sou
  const env=environment(),d=await loadRecord(env,'draft:'+id);
  if(!d||!sourceMatches(d,source)||!editableDraft(d)||!validDraftApproval(d,token,process.env.APP_PASSWORD!))throw Error('Черновик изменился или устарел. Обнови страницу.');
  if(!body.trim()||body.length>2800)throw Error('Нужен текст от 1 до 2800 символов.');
- if(prematurePricing(body,d.briefContext))throw Error('Ставку обсуждаем после получения тестового видео.');
+ if(prematurePricing(body,d.briefContext))throw Error('Убери из письма любые упоминания цены.');
  Object.assign(d,renderReplyMacro({body,firstName:d.macroFirstName,signature:d.signatureHtml}),{editedAt:new Date().toISOString()});await saveRecord(env,'draft:'+id,d);return {saved:true};
 }
 export async function sendWorkspaceDraft(id:string,token:unknown,source:MailSource='reddit'){
@@ -117,7 +117,7 @@ export async function updateDraftPricing(source:MailSource){
   const body=deferDraftPricing(draft.replyContent,draft.briefContext);
   const summary=deferPricingSummary(draft.summary||'',draft.briefContext);
   if(body===draft.replyContent&&summary===(draft.summary||''))continue;
-  if(!body||(draft.kind!=='followup'&&replyCoverageIssue(draft.incomingText,body)))continue;
+  if(!body||(draft.kind!=='followup'&&replyCoverageIssue(draft.incomingText,body,pricingDeferred(draft.briefContext))))continue;
   const fresh=await loadRecord(env,'draft:'+draft.id);
   if(!fresh||approvalToken(fresh,process.env.APP_PASSWORD!)!==approvalToken(draft,process.env.APP_PASSWORD!)||fresh.summary!==draft.summary)continue;
   const id=createHash('sha256').update(fresh.id+':'+CREATOR_POLICY_VERSION).digest('hex').slice(0,8);

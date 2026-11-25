@@ -8,11 +8,11 @@ import {renderReplyMacro} from '../src/lib/promy-bot/reply-macro.ts';
 const incoming=`I've created my account and uploaded my portfolio. Is this for a specific video order or mainly to join the creator network? Could you share more details about the brand or product and the type of content? How many videos and what are the expected formats and deadlines? Will they be used for organic content, paid ads, or both? Could you remind me of the rate per video I submitted and confirm the pricing? How payment works and what usage rights would be required?`;
 test('price discussion waits for the test, preserving the brief and actual paid work',()=>{
  const first={stage:'initial'};
- const original=briefReply('brief')+'\n\nRegarding pricing, we have the $80 rate you submitted in your form.';
+ const original=briefReply('brief')+'\n\nRegarding pricing, we have the $80 rate you submitted in your form. We can discuss rates after we receive your test video.';
  const body=deferDraftPricing(original,first);
  assert.ok(body.includes(CREATOR_BRIEF));
- assert.ok(body.includes('after we receive your test video'));
- assert.equal(replyCoverageIssue('I’m ready to go over pricing.',body),null);
+ assert.equal(body,briefReply('brief'));
+ assert.equal(replyCoverageIssue('I’m ready to go over pricing.',body,true),null);
  assert.equal(prematurePricing(body,first),false);
  assert.ok(!deferPricingSummary('Подтверждаем ставку 80 долларов.',first).includes('80'));
  assert.equal(deferDraftPricing(original,{stage:'sample_received'}),original);
