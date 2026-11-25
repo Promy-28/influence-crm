@@ -38,7 +38,7 @@ export function mediaSource(value: string, parentUrl?: string): string {
     return "https://drive.google.com/uc?export=download&id=" + id;
   }
   let samePortfolio=false;if(parentUrl)try{const p=new URL(/^https?:\/\//i.test(parentUrl)?parentUrl:'https://'+parentUrl);samePortfolio=p.hostname.replace(/^www\./,'')===h.replace(/^www\./,'')}catch{}
-  const allowed = samePortfolio || h.endsWith('.my.canva.site') || h==='media-public.canva.com' || h.endsWith('.pages.dev') || h==='firebasestorage.googleapis.com' || h.endsWith(".supabase.co") || h.endsWith(".tiktokcdn.com") || h.endsWith(".cdninstagram.com") || h.endsWith(".fbcdn.net");
+  const allowed = samePortfolio || h.endsWith('.my.canva.site') || (h==='media-public.canva.com'||h==='media.canva.com') || h.endsWith('.pages.dev') || h==='firebasestorage.googleapis.com' || h.endsWith(".supabase.co") || h.endsWith(".tiktokcdn.com") || h.endsWith(".cdninstagram.com") || h.endsWith(".fbcdn.net");
   if (!allowed || !/\.(mp4|webm|mov)$/i.test(u.pathname)) return fail("MEDIA_LINK_NEEDS_VIDEO");
   return u.href;
 }
@@ -82,7 +82,7 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
   let mimeType=/\.webm(?:\?|$)/i.test(uri)?'video/webm':/\.mov(?:\?|$)/i.test(uri)?'video/mov':'video/mp4';
   const fetcher = opts.fetcher ?? fetch;
   const initialHost=new URL(uri).hostname;
-  const managedMedia=initialHost.endsWith('.my.canva.site')||initialHost==='media-public.canva.com'||initialHost.endsWith('.pages.dev')||initialHost==='firebasestorage.googleapis.com';
+  const managedMedia=initialHost.endsWith('.my.canva.site')||(initialHost==='media-public.canva.com'||initialHost==='media.canva.com')||initialHost.endsWith('.pages.dev')||initialHost==='firebasestorage.googleapis.com';
   if (uri.startsWith('https://drive.google.com/uc?') || managedMedia) {
     let file = opts.providerFile;
     if (!file || Date.now()-Date.parse(file.uploadedAt) > 40*3600000) {
@@ -94,7 +94,7 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
         media=await fetcher(download,{redirect:'manual',signal:AbortSignal.timeout(20000)});
         if(media.status<300||media.status>=400)break;
         const next=new URL(media.headers.get('location')||'',download);
-        if(next.protocol!=='https:'||!(next.hostname==='drive.usercontent.google.com'||next.hostname.endsWith('.googleusercontent.com')||next.hostname===initialHost||next.hostname==='media-public.canva.com'||next.hostname.endsWith('.my.canva.site')||next.hostname==='firebasestorage.googleapis.com'))return fail('MEDIA_DRIVE_ACCESS_REQUIRED');
+        if(next.protocol!=='https:'||!(next.hostname==='drive.usercontent.google.com'||next.hostname.endsWith('.googleusercontent.com')||next.hostname===initialHost||(next.hostname==='media-public.canva.com'||next.hostname==='media.canva.com')||next.hostname.endsWith('.my.canva.site')||next.hostname==='firebasestorage.googleapis.com'))return fail('MEDIA_DRIVE_ACCESS_REQUIRED');
         download=next.href;
       }
       let size=Number(media?.headers.get('content-length'));const mime=media?.headers.get('content-type')?.split(';')[0]||'';
