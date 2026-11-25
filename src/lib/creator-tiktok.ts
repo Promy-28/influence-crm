@@ -9,12 +9,12 @@ const imageLimit=256*1024;
 async function saveCover(id:string,cover:string|null){
  const path=id+'.jpg';
  try {
-  const {data:exists}=await db.storage.from(coverBucket).exists(path);
-  if(exists)return '/api/creator-tiktok/cover/'+id;
+  const existing=await db.storage.from(coverBucket).exists(path).catch(()=>null);
+  if(existing?.data)return '/api/creator-tiktok/cover/'+id;
   if(!cover)return;
   const url=new URL(cover);
   if(url.protocol!=='https:'||url.username||url.password||url.port||!/[.]tiktokcdn(?:-us|-eu)?[.]com$/.test(url.hostname))return;
-  const response=await fetch(url,{redirect:'error',signal:AbortSignal.timeout(4000)});
+  const response=await fetch(url,{redirect:'error',headers:{'user-agent':'Mozilla/5.0','accept':'image/jpeg,image/webp,image/png'},signal:AbortSignal.timeout(4000)});
   if(!response.ok||!response.body||!/^image\/(jpeg|webp|png)(?:;|$)/i.test(response.headers.get('content-type')||''))return;
   const reader=response.body.getReader(),chunks:Uint8Array[]=[];
   let length=0;
@@ -31,7 +31,8 @@ async function saveCover(id:string,cover:string|null){
   const contentType=response.headers.get('content-type')!.split(';')[0].toLowerCase();
   const {error}=await db.storage.from(coverBucket).upload(path,Buffer.concat(chunks),{contentType,upsert:false});
   if(!error)return '/api/creator-tiktok/cover/'+id;
- }catch{ /* A missing cover does not prevent playback. */ }
+  console.warn('creator_tiktok_cover_upload_failed');
+ }catch{console.warn('creator_tiktok_cover_unavailable')}
 }
 
 export async function creatorTikTokPosts(creatorId:string){
