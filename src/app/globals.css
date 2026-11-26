@@ -272,3 +272,9 @@ details.set { padding:16px 18px; } details.set > summary { cursor:pointer; font:
 .draft-thread-dialog{position:fixed;inset:0;margin:auto;padding:0;width:min(760px,calc(100% - 32px));max-height:calc(100dvh - 32px);border:1px solid var(--line);border-radius:18px;background:white;color:inherit;overscroll-behavior:contain}
 .draft-thread-dialog::backdrop{background:rgb(18 16 34 / 55%)}
 .draft-thread-dialog .hub-messages{overscroll-behavior:contain}
+
+.draft-review-card .btn,.draft-review-card .btn-p,.draft-approval-bar .btn-p,.draft-thread-dialog .btn{display:inline-flex;align-items:center;justify-content:center;min-height:34px;line-height:1.25;text-align:center;white-space:normal}
+.draft-review-card .hub-heading,.draft-thread-dialog .hub-heading{align-items:flex-start;gap:12px}
+.draft-review-card .hub-heading>.row{flex-wrap:wrap}
+.draft-thread-dialog .hub-thread-head>div{min-width:0;overflow-wrap:anywhere}
+.draft-thread-dialog .hub-thread-head>.btn{flex-shrink:0}
