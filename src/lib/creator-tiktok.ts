@@ -57,16 +57,20 @@ async function publicPostCover(postUrl:string,key:string){
 
 export async function apifyPostCovers(creatorId:string){
  const {data}=await db.from('creators').select('recent_posts,handle,platform').eq('id',creatorId).eq('source','apify').maybeSingle();
- if(!data||!Array.isArray(data.recent_posts))return {};
- const posts=data.recent_posts.slice(0,6).flatMap((post:any)=>{
+ return storeApifyPostCovers(data?.handle, data?.recent_posts);
+}
+
+export async function storeApifyPostCovers(handle: string | null, recentPosts: unknown){
+ if(!Array.isArray(recentPosts))return {};
+ const posts=recentPosts.slice(0,6).flatMap((post:any)=>{
   const key=postCoverKey(post?.url);
   return key?[{key,url:String(post.url),cover:typeof post.cover==='string'?post.cover:null}]:[];
  }) as {key:string;url:string;cover:string|null}[];
  const covers=await Promise.all(posts.map(post=>saveCover(post.key,expiredPostAsset(post.cover)?null:post.cover)));
  const fresh=new Map<string,string>();
- if(covers.some((cover,i)=>!cover&&!posts[i].key.startsWith('ig-'))&&/^[\w.-]+$/.test(data.handle||'')){
+ if(covers.some((cover,i)=>!cover&&!posts[i].key.startsWith('ig-'))&&/^[\w.-]+$/.test(handle||'')){
   try{
-   const embed=tiktokProfileEmbed('https://www.tiktok.com/@'+data.handle);
+   const embed=tiktokProfileEmbed('https://www.tiktok.com/@'+handle);
    if(embed){
     const response=await fetch(embed,{headers:{'user-agent':'Mozilla/5.0'},redirect:'error',signal:AbortSignal.timeout(4500)});
     const html=response.ok?await response.text():'';

@@ -29,3 +29,7 @@ Redact Authorization, Cloudflare credential headers, cookies and environment val
 ## Local development
 
 Use Node 24 (the tested development/CI line), `npm ci`, and a local `.env.local` based on `.env.example`. Use separate non-production services when exercising integration writes. Never run “connect everything”, sourcing, email send or future posting operations just to test that a page loads. No dependency or infrastructure subscription should be added without a concrete need and the owner's budget authorization.
+
+### Apify review covers
+
+Apify ingestion saves covers for pending cards using the post image URLs already present in the profile results, with public post lookup as a fallback. Covers live in the private creator-tiktok-covers bucket and are keyed by post ID. Cover failures do not reject the creator. Opening an older card can still retry missing covers. The cover step does not start an Apify run.
