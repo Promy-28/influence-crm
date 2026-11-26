@@ -7,7 +7,7 @@ const wrap = (s: string) => `%${s.replace(/[%,()]/g, " ")}%`;
 export default async function Creators({ searchParams }: { searchParams: Promise<{ st?: string; p?: string; q?: string; arm?: string; page?: string }> }) {
   const sp = await searchParams; const page = Math.max(0, Number(sp.page ?? 0));
   let q = db.from("creators").select("id,platform,handle,name,email,avatar_url,followers,review_status,queued_at,first_sent_at,opened_at,replied_at,positive_at,registered_at,profile_done_at,first_video_at,videos,do_not_contact,bounced_at,unsubscribed_at,source,inst_campaign_id,created_at,arms(label),queries(kind,value)", { count: "exact" });
-  q=q.eq("source","apify");
+  q=q.in("source", ["apify", "manual"]);
   const st = sp.st ?? "";
   if (st === "video") q = q.not("first_video_at", "is", null); else if (st === "profile") q = q.not("profile_done_at", "is", null); else if (st === "registered") q = q.not("registered_at", "is", null);
   else if (st === "positive") q = q.not("positive_at", "is", null); else if (st === "replied") q = q.not("replied_at", "is", null); else if (st === "sent") q = q.not("first_sent_at", "is", null);
@@ -27,7 +27,7 @@ export default async function Creators({ searchParams }: { searchParams: Promise
       <input className="in" name="q" defaultValue={sp.q} placeholder="Ник, почта, имя" aria-label="Поиск" /></Filters>
     <div className="panel tw"><table className="t"><thead><tr><th>Креатор</th><th>Email</th><th>Этап</th><th className="num">Подп.</th><th>Вариант</th><th>Нашли</th><th>Написали</th><th>Регистрация</th><th className="num">Видео</th></tr></thead>
       <tbody>{(data ?? []).map((c) => { const [label, tag] = stage(c); const a = c.arms as unknown as { label: string } | null; const qq = c.queries as unknown as { kind: string; value: string } | null;
-        return <tr key={c.id}><td><div className="row" style={{ flexWrap: "nowrap" }}>{c.avatar_url ? <img className="ava-s" src={c.avatar_url} alt="" referrerPolicy="no-referrer" /> : <span className="ava-s" />}<div><a className="l" href={`/creators/${c.id}`}>@{c.handle}</a><div className="muted" style={{ fontSize: 12 }}>{PLATFORM[c.platform]}</div></div></div></td>
+        return <tr key={c.id}><td><div className="row" style={{ flexWrap: "nowrap" }}>{c.avatar_url ? <img className="ava-s" src={c.avatar_url} alt="" referrerPolicy="no-referrer" /> : <span className="ava-s" />}<div><a className="l" href={`/creators/${c.id}`}>@{c.handle}</a>{c.source === "manual" && <span className="tag" style={{ marginLeft: 6 }}>Вручную</span>}<div className="muted" style={{ fontSize: 12 }}>{PLATFORM[c.platform]}</div></div></div></td>
           <td className="mail-address">{c.email||"Email не найден"}<CampaignBadge ids={c.inst_campaign_id?[c.inst_campaign_id]:[]}/></td><td><span className={`tag ${tag}`}>{label}</span></td><td className="num">{n(c.followers)}</td><td>{a ? <span className="tag">{a.label}</span> : "—"}</td>
           <td className="muted" style={{ fontSize: 12.5 }}>{fmt(c.created_at)}{qq ? ` · ${qq.kind === "hashtag" ? "#" : ""}${qq.value}` : c.source !== "apify" ? ` · ${c.source.replace("import:", "")}` : ""}</td><td>{fmt(c.first_sent_at)}</td><td>{fmt(c.registered_at)}</td><td className="num">{c.videos || "—"}</td></tr>; })}</tbody></table>
       {!data?.length && <p className="muted" style={{ padding: 16 }}>По этим фильтрам креаторов нет.</p>}</div>

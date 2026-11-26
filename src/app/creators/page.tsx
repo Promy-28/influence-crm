@@ -14,7 +14,7 @@ export const maxDuration=60;
 export default async function Creators({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
  const sp=await searchParams,source=(sp.source?mailSource(sp.source):await workspaceMode())==='apify'?'found':'reddit';
 
- if(source==='found')return <div className="hub-stack"><div className="note">Этих креаторов нашли через поиск TikTok / Instagram. Источник и запрос указаны в таблице. <a className="l" href="/review">Проверить найденных →</a></div><FoundCreators searchParams={searchParams}/></div>;
+ if(source==='found')return <div className="hub-stack"><div className="note">Здесь креаторы из поиска TikTok / Instagram и добавленные вручную. <a className="l" href="/review">Проверить найденных →</a></div><FoundCreators searchParams={searchParams}/></div>;
  const [all,mail,membership]=await Promise.all([redditDirectory(),mailSnapshot(),creatorCampaigns()]);const contacts=contactThreads(mail.threads);
  const query=(sp.q||'').toLowerCase();const rows=all.filter(c=>{const state=creatorReviewState(c),checked=['great','maybe','no'].includes(state);return (!sp.review||sp.review==='all'||(sp.review==='checked'?checked:sp.review==='remaining'?!checked:state===sp.review))&&(!sp.rating||c.rating===sp.rating)&&(!query||[c.email,c.payload.name,c.payload.reddit].join(' ').toLowerCase().includes(query))});
  const page=Math.max(0,Number(sp.page)||0),shown=rows.slice(page*50,page*50+50);
