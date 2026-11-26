@@ -254,16 +254,20 @@ export async function scoreCreators(n = 12) {
 }
 
 // How far the review backlog and the ready-to-send list reach, in days of sending.
-export async function pipelineState(s?: Settings) {
+export async function pipelineState(s?: Settings, source?: "apify") {
   s = s ?? (await getSettings());
+  const creators = () => {
+    const query = db.from("creators").select("id", { count: "exact", head: true });
+    return source ? query.eq("source", source) : query;
+  };
   const c = async (q: PromiseLike<{ count: number | null }>) => (await q).count ?? 0;
   const [pending, ready, inQueue] = await Promise.all([
-    c(db.from("creators").select("id", { count: "exact", head: true }).eq("review_status", "pending").not("email", "is", null)),
-    c(db.from("creators").select("id", { count: "exact", head: true }).eq("review_status", "approved").is("queued_at", null).eq("do_not_contact", false)),
+    c(creators().eq("review_status", "pending").not("email", "is", null)),
+    c(creators().eq("review_status", "approved").is("queued_at", null).eq("do_not_contact", false)),
     c(db.from("profile_queue").select("handle", { count: "exact", head: true }).eq("status", "new")),
   ]);
   const perDay = dailyNew(s);
-  const [{ count: ok }, { count: no }] = await Promise.all([db.from("creators").select("id", { count: "exact", head: true }).eq("review_status", "approved").not("reviewed_by", "is", null), db.from("creators").select("id", { count: "exact", head: true }).eq("review_status", "rejected")]);
+  const [{ count: ok }, { count: no }] = await Promise.all([creators().eq("review_status", "approved").not("reviewed_by", "is", null), creators().eq("review_status", "rejected")]);
   const share = (ok ?? 0) + (no ?? 0) >= 20 ? (ok ?? 0) / ((ok ?? 0) + (no ?? 0)) : 0.5;
   return { pending, ready, inQueue, perDay, daysCovered: perDay ? (ready + pending * share) / perDay : 0 };
 }

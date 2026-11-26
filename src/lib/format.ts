@@ -12,7 +12,17 @@ export const todayWarsaw = () => new Intl.DateTimeFormat("en-CA", { timeZone: "E
 export function range(sp: { period?: string; from?: string; to?: string }) {
   const p = sp.period ?? "30"; const now = new Date(); const day = (d: Date) => d.toISOString().slice(0, 10);
   if (p === "all") return { from: "2020-01-01", to: day(new Date(now.getTime() + 864e5)), label: "всё время" };
-  if (p === "custom" && sp.from) return { from: sp.from, to: sp.to || day(now), label: `${sp.from} — ${sp.to || "сегодня"}` };
+  if (p === "custom") {
+    const valid = (value?: string): value is string => {
+      if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(value);
+      return Number.isFinite(date.getTime()) && day(date) === value;
+    };
+    const from = valid(sp.from) ? sp.from : day(now);
+    const end = valid(sp.to) ? sp.to : day(now);
+    if (from > end) return { from, to: from, label: "пустой период" };
+    return { from, to: day(new Date(Date.parse(end) + 864e5)), label: `${from} — ${end}` };
+  }
   const days = p === "7" ? 7 : p === "today" ? 1 : p === "90" ? 90 : 30;
   return { from: day(new Date(now.getTime() - (days - 1) * 864e5)), to: day(new Date(now.getTime() + 864e5)), label: p === "today" ? "сегодня" : `${days} дней` };
 }
