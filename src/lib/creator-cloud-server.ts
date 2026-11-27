@@ -244,12 +244,16 @@ async function useAvailableMediaBudget(){
   db.from('creator_media_budget').select('used').eq('hour',hour).maybeSingle(),
   db.from('creator_cloud_jobs').select('creator_id',{count:'exact',head:true}).eq('status','processing').gt('lease_until',now.toISOString()),
  ]);
- if(claims.error||budget.error||inFlight.error||inFlight.count>=2||claims.count<20||(budget.data?.used??0)>=20)return;
+ if(claims.error||budget.error||inFlight.error)throw Error('MEDIA_BUDGET_READ_FAILED');
+ if(inFlight.count>=2||claims.count<20||(budget.data?.used??0)>=20)return;
  const at=now.toISOString();
- const {data:jobs,error}=await db.from('creator_cloud_jobs').select('*').or('and(status.eq.queued,error.eq.MEDIA_READY),status.eq.processing')
+ const eligible=(state:string)=>db.from('creator_cloud_jobs').select('*').eq('status',state)
   .not('source','is',null).lte('next_at',at)
   .or(`lease_until.is.null,lease_until.lt.${at}`).order('next_at').order('creator_id').limit(1);
- if(error||!jobs?.length)return;
+ const [processing,ready]=await Promise.all([eligible('processing'),eligible('queued').eq('error','MEDIA_READY')]);
+ if(processing.error||ready.error)throw Error('MEDIA_READY_READ_FAILED');
+ const jobs=[...(processing.data||[]),...(ready.data||[])];
+ if(!jobs.length)return;
  const job=jobs[0],lease_until=new Date(now.getTime()+360000).toISOString();
  const {data:reserved}=await db.from('creator_cloud_jobs').update({status:'processing',lease_until,updated_at:at})
   .eq('creator_id',job.creator_id).eq('status',job.status).eq('updated_at',job.updated_at)
@@ -287,7 +291,7 @@ export async function runCloudQueue(){
  const preflight=preflightCloudBatch().catch(()=>console.error('creator_cloud_preflight_failed'));
  const {data:jobs,error}=await db.rpc('claim_creator_cloud_jobs');if(error)throw Error('QUEUE_CLAIM_FAILED');
  await Promise.all([preflight,...(jobs||[]).map(processCloudJob)]);
- if(!jobs?.length)await useAvailableMediaBudget();
+ await useAvailableMediaBudget().catch((error:unknown)=>console.error('creator_cloud_media_budget_dispatch_failed',error instanceof Error?error.message:'UNKNOWN'));
  return {handled:jobs?.length||0,...await cloudQueueStatus()};
 }
 
