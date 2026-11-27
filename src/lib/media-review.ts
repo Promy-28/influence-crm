@@ -86,8 +86,9 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
   const fetcher = opts.fetcher ?? fetch;
   const initialHost=new URL(uri).hostname;
   const socialMedia=socialMediaHost(initialHost);
-  const managedMedia=socialMedia||initialHost.endsWith('.my.canva.site')||(initialHost==='media-public.canva.com'||initialHost==='media.canva.com')||initialHost.endsWith('.pages.dev')||initialHost==='firebasestorage.googleapis.com';
-  const accessError=socialMedia?'MEDIA_SOCIAL_VIDEO_UNAVAILABLE':'MEDIA_DRIVE_ACCESS_REQUIRED';
+  const portfolioFile=initialHost==='hismat-my.com'&&new URL(uri).pathname.startsWith('/videos/');
+  const managedMedia=portfolioFile||socialMedia||initialHost.endsWith('.my.canva.site')||(initialHost==='media-public.canva.com'||initialHost==='media.canva.com')||initialHost.endsWith('.pages.dev')||initialHost==='firebasestorage.googleapis.com';
+  const accessError=socialMedia||portfolioFile?'MEDIA_SOCIAL_VIDEO_UNAVAILABLE':'MEDIA_DRIVE_ACCESS_REQUIRED';
   if (uri.startsWith('https://drive.google.com/uc?') || managedMedia) {
     let file = opts.providerFile;
     if (!file || Date.now()-Date.parse(file.uploadedAt) > 40*3600000) {
@@ -100,14 +101,14 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
         if(media.status<300||media.status>=400)break;
         const next=new URL(media.headers.get('location')||'',download);
         await media.body?.cancel();
-        if(next.protocol!=='https:'||next.username||next.password||next.port||!(next.hostname===initialHost||(!socialMedia&&(next.hostname==='drive.usercontent.google.com'||next.hostname.endsWith('.googleusercontent.com')||(next.hostname==='media-public.canva.com'||next.hostname==='media.canva.com')||next.hostname.endsWith('.my.canva.site')||next.hostname==='firebasestorage.googleapis.com'))))return fail(accessError);
+        if(next.protocol!=='https:'||next.username||next.password||next.port||!(next.hostname===initialHost||(!socialMedia&&!portfolioFile&&(next.hostname==='drive.usercontent.google.com'||next.hostname.endsWith('.googleusercontent.com')||(next.hostname==='media-public.canva.com'||next.hostname==='media.canva.com')||next.hostname.endsWith('.my.canva.site')||next.hostname==='firebasestorage.googleapis.com'))))return fail(accessError);
         download=next.href;
       }
       let size=Number(media?.headers.get('content-length'));const mime=media?.headers.get('content-type')?.split(';')[0]||'';
       if(!media?.ok||!mime.startsWith('video/')){await media?.body?.cancel();return fail(accessError)}
       if(Number.isSafeInteger(size)&&size>200*1024*1024){await media.body?.cancel();return fail('MEDIA_FILE_SIZE_UNSUPPORTED')}
       let uploadBody: BodyInit|null=media.body;
-      if(socialMedia||!Number.isSafeInteger(size)||size<=0){
+      if(socialMedia||portfolioFile||!Number.isSafeInteger(size)||size<=0){
        let bytes:Uint8Array<ArrayBuffer>;
        try{bytes=await boundedVideoBytes(media.body)}catch(error){if(error instanceof MediaReviewError)throw error;return fail(accessError)}
        size=bytes.byteLength;uploadBody=new Blob([bytes],{type:mime});
