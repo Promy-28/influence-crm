@@ -107,8 +107,15 @@ export function embeddedMedia(html:string,base:string){
  return [...new Set([...canvaVideos,...urls])].filter(s=>{const u=new URL(s);return u.hostname===page.hostname||['media.canva.com','media-public.canva.com'].includes(u.hostname)}).slice(0,12);
 }
 export function cloudAssessment(result:any,quote:string){
- if(!result?.videoReviewed||!result?.audioReviewed||result.englishSpeech!==true||!result?.speech?.length||!result?.frames?.length)return null;
- if(result.speech.map((s:any)=>s.quote||'').join(' ').trim().split(/\s+/).length<8)return null;
- const poor=result.intelligibility<=2||result.videoQuality<=2;
- return {decision:poor?'no':'maybe',reason:String(result.summary||'').slice(0,900),quality:[`Английская речь: ${result.intelligibility}/5. Видео: ${result.videoQuality}/5.`,result.limitations||''].join(' ').slice(0,900),price:`Заявлено в форме: $${quote||'не указано'}. Это не согласованная ставка. Качество оценено отдельно; цвет можно подтвердить или изменить перед импортом.`,videoReviewed:true,audioReviewed:true,evidence:[result.source],at:new Date().toISOString()};
+ if(!result?.videoReviewed||!result?.audioReviewed||typeof result.englishSpeech!=='boolean'||!result?.speech?.length||!result?.frames?.length)return null;
+ const speech=result.speech.filter((sample:any)=>typeof sample.quote==='string'&&/[\p{L}]/u.test(sample.quote)&&Number.isFinite(sample.second));
+ const words=speech.map((sample:any)=>sample.quote.trim().split(/\s+/).length);
+ const total=words.reduce((sum:number,count:number)=>sum+count,0);
+ const separateQuotes=new Set(speech.map((sample:any)=>sample.quote.trim().toLowerCase())).size>=2&&new Set(speech.map((sample:any)=>sample.second)).size>=2;
+ if(total<8&&!(total>=5&&Math.max(...words)>=4&&separateQuotes))return null;
+ if(!Number.isInteger(result.videoQuality)||result.videoQuality<1||result.videoQuality>5)return null;
+ if(result.englishSpeech&&(!Number.isInteger(result.intelligibility)||result.intelligibility<1||result.intelligibility>5))return null;
+ const poor=result.videoQuality<=2||result.englishSpeech&&result.intelligibility<=2;
+ const speechQuality=result.englishSpeech?`Английская речь: ${result.intelligibility}/5.`:'Речь проверена: в этом образце она не на английском. Для оценки английского нужен другой ролик.';
+ return {decision:poor?'no':'maybe',reason:String(result.summary||'').slice(0,900),quality:[`${speechQuality} Видео: ${result.videoQuality}/5.`,result.limitations||''].join(' ').slice(0,900),price:`Заявлено в форме: $${quote||'не указано'}. Это не согласованная ставка. Качество оценено отдельно; цвет можно подтвердить или изменить перед импортом.`,videoReviewed:true,audioReviewed:true,evidence:[result.source],at:new Date().toISOString()};
 }

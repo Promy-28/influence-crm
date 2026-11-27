@@ -18,7 +18,7 @@ test('no color without original audio and visual evidence',()=>{
  const result={videoReviewed:true,audioReviewed:true,speech:[{second:1,quote:'This is a short demonstration of my favorite product today'}],frames:[{second:1,observation:'camera'}],englishSpeech:true,intelligibility:4,videoQuality:4,summary:'Чёткий разговорный пример',source:'https://a.example/clip.mp4'};
  assert.equal(cloudAssessment(result,'300')?.decision,'maybe');
  assert.equal(cloudAssessment({...result,videoQuality:1},'10')?.decision,'no');
- assert.equal(cloudAssessment({...result,englishSpeech:false},'10'),null);
+ assert.equal(cloudAssessment({...result,englishSpeech:false},'10')?.decision,'maybe');
  assert.equal(cloudAssessment({...result,speech:[{second:1,quote:'Oh'}]},'10'),null);
 });
 test('social fallback follows creator-owned posts and reads only post video metadata',()=>{

@@ -3,7 +3,7 @@ import {createHmac,timingSafeEqual} from 'node:crypto';
 import {all,db} from './db';
 import {syncRedditForm} from './reddit-form-sync';
 import {creatorReviewState} from './creator-progress';
-import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia,tiktokProfileEmbed,tiktokEmbedPosts} from './creator-cloud-policy';
+import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia,tiktokProfileEmbed,tiktokEmbedPosts,tiktokStreamKey} from './creator-cloud-policy';
 import {tiktokPlayer} from './post-preview';
 import {mediaSource} from './media-review';
 import {publicPortfolioMedia} from './jockey-review';
@@ -147,12 +147,37 @@ async function discover(c:any,j:any){
  if(j.error==='TRY_CANVA_SITE_VIDEO'&&['SOCIAL_VIDEO_SOURCE_REQUIRED','NO_PUBLIC_VIDEO_DISCOVERED'].includes(discoveryError))throw Error('CANVA_SITE_NO_PLAYABLE_VIDEO');
  throw Error(discoveryError);
 }
+async function persistCloudAssessment(c:any,j:any,assessment:any,source:string,parentUrl:string|null,result:any){
+ const payload={...c.payload,assessment,autonomousReview:{assessment,fingerprint:j.fingerprint,source,parentUrl,postUrl:tiktokPlayer(parentUrl)?parentUrl:null,at:assessment.at},reviewSourceFingerprint:j.fingerprint,reviewStatus:'awaiting_owner',mediaEvidence:result};
+ const {data,error}=await db.from('reddit_creator_directory').update({payload,review_pending:false,updated_at:assessment.at}).eq('id',c.id).eq('updated_at',c.updated_at).select('id');
+ if(error||!data?.length)throw Error('SOURCE_CHANGED_RESULT_NOT_APPLIED');
+}
+
+async function recoverAnalyzedSample(c:any,j:any){
+ if(j.error!=='RECHECK_SAVED_MEDIA')return false;
+ const known=[...(j.samples||[]),j.source].filter(Boolean) as string[];
+ const keys=new Set(known.map(tiktokStreamKey).filter(Boolean));
+ if(!known.length)return false;
+ const {data,error}=await db.from('creator_media_reviews').select('source,result').eq('creator_id','hub-'+c.id).eq('status','completed').order('finished_at',{ascending:false}).limit(25);
+ if(error)throw Error('QUEUE_EVIDENCE_READ_FAILED');
+ for(const item of data||[]){
+  const key=tiktokStreamKey(item.source);
+  if(!known.includes(item.source)&&(!key||!keys.has(key)))continue;
+  const assessment=cloudAssessment({...item.result,source:item.source},c.payload.price);
+  if(!assessment)continue;
+  await persistCloudAssessment(c,j,assessment,item.source,item.source===j.source?j.parent_url:null,item.result);
+  return true;
+ }
+ return false;
+}
+
 async function processCloudJob(j:any){
  const {data:c,error}=await db.from('reddit_creator_directory').select('*').eq('id',j.creator_id).single();if(error||!c)throw Error('CREATOR_NOT_FOUND');
  const save=async(value:any)=>{const {error:e}=await db.from('creator_cloud_jobs').update({...value,lease_until:null,updated_at:new Date().toISOString()}).eq('creator_id',j.creator_id).eq('lease_until',j.lease_until);if(e)throw Error('QUEUE_RESULT_SAVE_FAILED')};
  if((c.payload.sourceFingerprint||null)!==j.fingerprint){await save({status:'blocked',error:'SOURCE_CHANGED_REQUEUE_REQUIRED'});return}
  if(['great','maybe','no'].includes(creatorReviewState(c))){await save({status:'completed',error:null});return}
  try{
+  if(await recoverAnalyzedSample(c,j)){await save({status:'completed',error:null});return}
   if(j.samples.length>=2&&!j.source)throw Error('NO_SPEECH_AFTER_TWO_SAMPLES');
   const {source,parentUrl}=await discover(c,j);
   // Persist before provider work so a timeout resumes the same source.
@@ -161,8 +186,7 @@ async function processCloudJob(j:any){
   if(r.status==='completed'&&r.result){
    const assessment=cloudAssessment({...r.result,source},c.payload.price);
    if(!assessment){await save({source:null,parent_url:null,samples:[...j.samples,source],status:j.samples.length>=1?'blocked':'queued',error:'SAMPLE_WITHOUT_VERIFIED_SPEECH',next_at:new Date(Date.now()+3600000).toISOString()});return}
-   const payload={...c.payload,assessment,autonomousReview:{assessment,fingerprint:j.fingerprint,source,parentUrl,postUrl:tiktokPlayer(parentUrl)?parentUrl:null,at:assessment.at},reviewSourceFingerprint:j.fingerprint,reviewStatus:'awaiting_owner',mediaEvidence:r.result};
-   const {data:written,error:e}=await db.from('reddit_creator_directory').update({payload,review_pending:false,updated_at:assessment.at}).eq('id',c.id).eq('updated_at',c.updated_at).select('id');if(e||!written?.length)throw Error('SOURCE_CHANGED_RESULT_NOT_APPLIED');
+   await persistCloudAssessment(c,j,assessment,source,parentUrl,r.result);
    await save({status:'completed',error:null});return;
   }
   const code=String(r.error||r.status||'MEDIA_UNAVAILABLE').slice(0,120),temporary=code!=='MEDIA_PROVIDER_400'&&(r.deferred||['processing','hourly_limit'].includes(r.status)||response.status>=500||response.status===429);

@@ -96,7 +96,7 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
       let download = managedMedia?uri:'https://drive.usercontent.google.com/download?export=download&confirm=t&id='+encodeURIComponent(id);
       let media: Response | undefined;
       for(let n=0;n<4;n++) {
-        media=await fetcher(download,{redirect:'manual',signal:AbortSignal.timeout(20000)});
+        try{media=await fetcher(download,{redirect:'manual',signal:AbortSignal.timeout(20000)});}catch{return fail(accessError)}
         if(media.status<300||media.status>=400)break;
         const next=new URL(media.headers.get('location')||'',download);
         await media.body?.cancel();
@@ -107,12 +107,16 @@ export async function analyzeMedia(opts: { apiKey: string; freeProjectConfirmed:
       if(!media?.ok||!mime.startsWith('video/')){await media?.body?.cancel();return fail(accessError)}
       if(Number.isSafeInteger(size)&&size>200*1024*1024){await media.body?.cancel();return fail('MEDIA_FILE_SIZE_UNSUPPORTED')}
       let uploadBody: BodyInit|null=media.body;
-      if(!Number.isSafeInteger(size)||size<=0){const bytes=await boundedVideoBytes(media.body);size=bytes.byteLength;uploadBody=new Blob([bytes],{type:mime});}
+      if(socialMedia||!Number.isSafeInteger(size)||size<=0){
+       let bytes:Uint8Array<ArrayBuffer>;
+       try{bytes=await boundedVideoBytes(media.body)}catch(error){if(error instanceof MediaReviewError)throw error;return fail(accessError)}
+       size=bytes.byteLength;uploadBody=new Blob([bytes],{type:mime});
+      }
       const start=await fetcher('https://generativelanguage.googleapis.com/upload/v1beta/files',{method:'POST',headers:{'x-goog-api-key':opts.apiKey,'content-type':'application/json','x-goog-upload-protocol':'resumable','x-goog-upload-command':'start','x-goog-upload-header-content-length':String(size),'x-goog-upload-header-content-type':mime},body:JSON.stringify({file:{display_name:'Promy UGC sample'}}),signal:AbortSignal.timeout(10000)});
       const upload=start.headers.get('x-goog-upload-url');
       if(!start.ok||!upload||new URL(upload).origin!=='https://generativelanguage.googleapis.com')return fail('MEDIA_UPLOAD_UNAVAILABLE');
-      const sent=await fetcher(upload,{method:'POST',headers:{'content-length':String(size),'x-goog-upload-offset':'0','x-goog-upload-command':'upload, finalize'},body:uploadBody,duplex:'half',signal:AbortSignal.timeout(40000)} as RequestInit);
-      if(!sent.ok)return fail('MEDIA_UPLOAD_UNAVAILABLE');
+      const sent=await fetcher(upload,{method:'POST',headers:{'content-length':String(size),'x-goog-upload-offset':'0','x-goog-upload-command':'upload, finalize'},body:uploadBody,duplex:'half',signal:AbortSignal.timeout(40000)} as RequestInit).catch(()=>null);
+      if(!sent?.ok)return fail('MEDIA_UPLOAD_UNAVAILABLE');
       const data=await sent.json();const f=data.file;
       if(!/^files\/[\w-]+$/.test(f?.name||'')||typeof f.uri!=='string'||!f.uri.startsWith('https://generativelanguage.googleapis.com/'))return fail('MEDIA_UPLOAD_UNAVAILABLE');
       const pending=new MediaReviewError('MEDIA_FILE_PROCESSING');pending.providerFile={name:f.name,uri:f.uri,mimeType:mime,uploadedAt:new Date().toISOString()};throw pending;
