@@ -151,7 +151,8 @@ async function discover(c:any,j:any){
  throw Error(discoveryError);
 }
 async function persistCloudAssessment(c:any,j:any,assessment:any,source:string,parentUrl:string|null,result:any){
- const payload={...c.payload,assessment,autonomousReview:{assessment,fingerprint:j.fingerprint,source,parentUrl,postUrl:tiktokPlayer(parentUrl)?parentUrl:null,at:assessment.at},reviewSourceFingerprint:j.fingerprint,reviewStatus:'awaiting_owner',mediaEvidence:result};
+ const instagramPost=parentUrl&&/^https:\/\/(?:www\.)?instagram\.com\/(?:[\w.]+\/)?(?:reel|p|tv)\/[\w-]+\/?$/i.test(parentUrl);
+ const payload={...c.payload,assessment,autonomousReview:{assessment,fingerprint:j.fingerprint,source,parentUrl,postUrl:tiktokPlayer(parentUrl)||instagramPost?parentUrl:null,at:assessment.at},reviewSourceFingerprint:j.fingerprint,reviewStatus:'awaiting_owner',mediaEvidence:result};
  const {data,error}=await db.from('reddit_creator_directory').update({payload,review_pending:false,updated_at:assessment.at}).eq('id',c.id).eq('updated_at',c.updated_at).select('id');
  if(error||!data?.length)throw Error('SOURCE_CHANGED_RESULT_NOT_APPLIED');
 }
@@ -196,9 +197,9 @@ async function processCloudJob(j:any){
    await persistCloudAssessment(c,j,assessment,source,parentUrl,r.result);
    await save({status:'completed',error:null});return;
   }
-  const code=String(r.error||r.status||'MEDIA_UNAVAILABLE').slice(0,120),failedEvidence=['MEDIA_RESULT_INVALID','MEDIA_REVIEW_FAILED','MEDIA_UPLOAD_UNAVAILABLE','MEDIA_FORMAT_UNAVAILABLE'].includes(code), exhaustedEvidence=failedEvidence&&j.error===code&&j.attempts>=3,temporary=code!=='MEDIA_PROVIDER_400'&&!exhaustedEvidence&&(r.deferred||['processing','hourly_limit'].includes(r.status)||response.status>=500||response.status===429);
-  if((exhaustedEvidence||['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_SOCIAL_VIDEO_UNAVAILABLE','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO','MEDIA_PROVIDER_400'].includes(code))&&j.samples.length===0){
-   await save({source:null,parent_url:null,samples:[source],status:'queued',error:'TRY_ALTERNATIVE_VIDEO',next_at:new Date().toISOString()});
+  const code=String(r.error||r.status||'MEDIA_UNAVAILABLE').slice(0,120),failedEvidence=['MEDIA_RESULT_INVALID','MEDIA_REVIEW_FAILED','MEDIA_UPLOAD_UNAVAILABLE','MEDIA_FORMAT_UNAVAILABLE'].includes(code), exhaustedEvidence=failedEvidence&&j.error===code&&j.attempts>=3,incompleteEvidence=['MEDIA_RESULT_NO_SPEECH_EVIDENCE','MEDIA_RESULT_NO_VISUAL_EVIDENCE'].includes(code),temporary=code!=='MEDIA_PROVIDER_400'&&!exhaustedEvidence&&!incompleteEvidence&&(r.deferred||['processing','hourly_limit'].includes(r.status)||response.status>=500||response.status===429);
+  if((exhaustedEvidence||incompleteEvidence||['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_SOCIAL_VIDEO_UNAVAILABLE','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO','MEDIA_PROVIDER_400'].includes(code))&&j.samples.length+1<sampleLimit){
+   await save({source:null,parent_url:null,samples:[...j.samples,source],status:'queued',error:'TRY_ALTERNATIVE_VIDEO',next_at:new Date().toISOString()});
    return;
   }
   await save({status:temporary?'processing':'blocked',error:code,next_at:new Date(Date.now()+(r.status==='hourly_limit'?3600000:r.status==='processing'?60000:temporary?600000:86400000)).toISOString()});
