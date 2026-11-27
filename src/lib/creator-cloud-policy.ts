@@ -37,12 +37,51 @@ export function tiktokStreamKey(source:unknown){
  }catch{return null}
 }
 
+export function sameSocialSample(left:string,right:string){
+ if(left===right)return true;
+ const key=tiktokStreamKey(left);
+ if(key&&key===tiktokStreamKey(right))return true;
+ try{
+  const a=new URL(left),b=new URL(right);
+  return a.hostname===b.hostname&&a.pathname===b.pathname&&a.pathname!=='/'&&a.hostname.endsWith('.cdninstagram.com');
+ }catch{return false}
+}
+
+function instagramVideoItems(html:string){
+ const items:any[]=[];
+ for(const script of html.matchAll(/<script\b[^>]*\btype=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi)){
+  if(!script[1].includes('video_versions')&&!script[1].includes('video_url'))continue;
+  let root:unknown;
+  try{root=JSON.parse(script[1])}catch{continue}
+  const pending=[root];
+  for(let seen=0;pending.length&&seen<30000;seen++){
+   const value=pending.pop();
+   if(!value||typeof value!=='object')continue;
+   const item=value as Record<string,any>;
+   const code=item.shortcode||item.code;
+   if(typeof code==='string'&&/^[\w-]{5,32}$/.test(code)&&(Array.isArray(item.video_versions)||typeof item.video_url==='string')){
+    const username=item.owner?.username||item.user?.username||null;
+    const sources=[item.video_url,...(Array.isArray(item.video_versions)?item.video_versions.map((video:any)=>video?.url):[])];
+    items.push({code,username,sources});
+   }
+   pending.push(...Object.values(value));
+  }
+ }
+ return items as {code:string;username:string|null;sources:unknown[]}[];
+}
+
 export function publicSocialPosts(html: string, profile: string) {
  const parent = new URL(profile);
  const platform = socialPlatform(parent.hostname);
  const account = parent.pathname.match(platform === 'tiktok' ? /^\/@([\w.-]+)\/?$/ : /^\/([\w.]+)\/?$/)?.[1];
  if (!platform || !account) return [];
  const posts = new Set<string>();
+ if(platform==='instagram'){
+  for(const item of instagramVideoItems(html)){
+   if(typeof item.username==='string'&&item.username.toLowerCase()===account.toLowerCase())posts.add('https://www.instagram.com/reel/'+item.code+'/');
+   if(posts.size>=5)return [...posts];
+  }
+ }
  for (const match of html.matchAll(/href\s*=\s*["']([^"']+)["']/gi)) {
   let url: URL;
   try { url = new URL(match[1], parent); } catch { continue; }
@@ -53,7 +92,7 @@ export function publicSocialPosts(html: string, profile: string) {
    ? url.pathname.match(/^\/@([\w.-]+)\/video\/(\d+)\/?$/)
    : url.pathname.match(/^\/([\w.]+)\/(?:reel|p)\/([\w-]+)\/?$/);
   if (post?.[1].toLowerCase() === account.toLowerCase()) posts.add(url.origin + url.pathname);
-  if (posts.size === 2) break;
+  if (posts.size >= 5) break;
  }
  return [...posts];
 }
@@ -84,6 +123,14 @@ export function socialPostMedia(html: string, page: string) {
      accept(item.video?.downloadAddr);
     }
    } catch { /* Try public metadata if the page has no usable state. */ }
+  }
+ }
+ if (platform === 'instagram') {
+  const identity=url.pathname.match(/^\/(?:([\w.]+)\/)?(?:p|reel|tv)\/([\w-]+)\/?$/)!;
+  for(const item of instagramVideoItems(html)){
+   if(item.code!==identity[2])continue;
+   if(identity[1]&&typeof item.username==='string'&&item.username.toLowerCase()!==identity[1].toLowerCase())continue;
+   for(const source of item.sources)accept(source);
   }
  }
  for (const match of html.matchAll(/<meta\s[^>]*>/gi)) {

@@ -3,7 +3,7 @@ import {createHmac,timingSafeEqual} from 'node:crypto';
 import {all,db} from './db';
 import {syncRedditForm} from './reddit-form-sync';
 import {creatorReviewState} from './creator-progress';
-import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia,tiktokProfileEmbed,tiktokEmbedPosts,tiktokStreamKey} from './creator-cloud-policy';
+import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia,tiktokProfileEmbed,tiktokEmbedPosts,tiktokStreamKey,sameSocialSample} from './creator-cloud-policy';
 import {tiktokPlayer} from './post-preview';
 import {mediaSource} from './media-review';
 import {publicPortfolioMedia} from './jockey-review';
@@ -87,17 +87,20 @@ async function portfolioHtml(url:string){
   return {html:text,url:current};
  }throw Error('PORTFOLIO_REDIRECT_LIMIT');
 }
+const sampleLimit=4;
 async function discover(c:any,j:any){
  if(j.source)return {source:j.source,parentUrl:j.parent_url};
- const links=portfolioLinks(c.payload.videos+' '+c.payload.profile);
+ const submitted=portfolioLinks(c.payload.videos+' '+c.payload.profile);
+ const links=j.parent_url?[...new Set([j.parent_url,...submitted])]:submitted;
+ const seen=(source:string)=>j.samples.some((sample:string)=>sameSocialSample(sample,source));
  // Resume cached original media for this exact creator; never substitute another identity.
  const {data:cached}=await db.from('creator_media_reviews').select('source,status,result').eq('creator_id','hub-'+c.id).order('started_at',{ascending:false}).limit(12);
  const ordered=[...(cached||[])].sort((a:any,b:any)=>Number(!!b.result?.audioReviewed&&b.result?.englishSpeech===true)-Number(!!a.result?.audioReviewed&&a.result?.englishSpeech===true));
- for(const x of ordered){const parent=links.find(p=>{try{return new URL(p).hostname===new URL(x.source).hostname||(['canva.link','www.canva.com'].includes(new URL(p).hostname)&&new URL(x.source).hostname==='media.canva.com')}catch{return false}});if(parent&&!j.samples.includes(x.source))return {source:x.source,parentUrl:parent}}
- for(const p of links){try{const source=mediaSource(p,p);if(!j.samples.includes(source))return {source,parentUrl:p}}catch{}}
+ for(const x of ordered){const parent=links.find(p=>{try{return new URL(p).hostname===new URL(x.source).hostname||(['canva.link','www.canva.com'].includes(new URL(p).hostname)&&new URL(x.source).hostname==='media.canva.com')}catch{return false}});if(parent&&!seen(x.source))return {source:x.source,parentUrl:parent}}
+ for(const p of links){try{const source=mediaSource(p,p);if(!seen(source))return {source,parentUrl:p}}catch{}}
  const findSample=(candidates:string[],parentUrl:string)=>{
   for(const candidate of candidates){
-   try {const source=mediaSource(candidate,parentUrl);if(!j.samples.includes(source))return {source,parentUrl};} catch { /* Try the next candidate. */ }
+   try {const source=mediaSource(candidate,parentUrl);if(!seen(source))return {source,parentUrl};} catch { /* Try the next candidate. */ }
   }
  };
  let discoveryError=links.length?'NO_PUBLIC_VIDEO_DISCOVERED':'NO_CREATOR_VIDEO_LINK';
@@ -141,7 +144,7 @@ async function discover(c:any,j:any){
   }
  }
  for(const p of links.filter(p=>['canva.link','canva.com','www.canva.com'].includes(new URL(p).hostname)||new URL(p).hostname.endsWith('.my.canva.site')).slice(0,2)){
-  try{for(const source of await renderPortfolioMedia(p))if(!j.samples.includes(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch(e){const code=e instanceof Error?e.message:'';discoveryError=/^PORTFOLIO_[A-Z_]+$/.test(code)?code:e instanceof Error&&e.name==='TimeoutError'?'SERVER_BROWSER_TIMEOUT':'SERVER_BROWSER_START_FAILED';console.error('creator_cloud_browser_failed',discoveryError,code.replace(/https?:\/\/\S+/g,'[url]').replace(/[A-Za-z0-9_-]{40,}/g,'[redacted]').slice(0,350))}
+  try{for(const source of await renderPortfolioMedia(p))if(!seen(source)){mediaSource(source,p);return {source,parentUrl:p}}}catch(e){const code=e instanceof Error?e.message:'';discoveryError=/^PORTFOLIO_[A-Z_]+$/.test(code)?code:e instanceof Error&&e.name==='TimeoutError'?'SERVER_BROWSER_TIMEOUT':'SERVER_BROWSER_START_FAILED';console.error('creator_cloud_browser_failed',discoveryError,code.replace(/https?:\/\/\S+/g,'[url]').replace(/[A-Za-z0-9_-]{40,}/g,'[redacted]').slice(0,350))}
  }
  if(discoveryError==='SOCIAL_VIDEO_SOURCE_REQUIRED'&&triedTikTokProfile)throw Error('TIKTOK_EMBED_NO_PLAYABLE_VIDEO');
  if(j.error==='TRY_CANVA_SITE_VIDEO'&&['SOCIAL_VIDEO_SOURCE_REQUIRED','NO_PUBLIC_VIDEO_DISCOVERED'].includes(discoveryError))throw Error('CANVA_SITE_NO_PLAYABLE_VIDEO');
@@ -178,14 +181,18 @@ async function processCloudJob(j:any){
  if(['great','maybe','no'].includes(creatorReviewState(c))){await save({status:'completed',error:null});return}
  try{
   if(await recoverAnalyzedSample(c,j)){await save({status:'completed',error:null});return}
-  if(j.samples.length>=2&&!j.source)throw Error('NO_SPEECH_AFTER_TWO_SAMPLES');
+  if(j.samples.length>=sampleLimit&&!j.source)throw Error('NO_SPEECH_AFTER_FOUR_SAMPLES');
   const {source,parentUrl}=await discover(c,j);
   // Persist before provider work so a timeout resumes the same source.
   await db.from('creator_cloud_jobs').update({status:'processing',source,parent_url:parentUrl,attempts:j.attempts+1}).eq('creator_id',j.creator_id).eq('lease_until',j.lease_until);
   const response=await analyze(new NextRequest(origin+'/api/media-review',{method:'POST',headers:{authorization:'Bearer '+process.env.APP_PASSWORD,'content-type':'application/json'},body:JSON.stringify({creatorId:'hub-'+c.id,source,parentUrl})}));const r=await response.json();
   if(r.status==='completed'&&r.result){
    const assessment=cloudAssessment({...r.result,source},c.payload.price);
-   if(!assessment){await save({source:null,parent_url:null,samples:[...j.samples,source],status:j.samples.length>=1?'blocked':'queued',error:'SAMPLE_WITHOUT_VERIFIED_SPEECH',next_at:new Date(Date.now()+3600000).toISOString()});return}
+   if(!assessment){
+    const samples=[...j.samples,source];
+    const reachedLimit=samples.length>=sampleLimit;
+    await save({source:null,parent_url:null,samples,status:reachedLimit?'blocked':'queued',error:reachedLimit?'SAMPLE_WITHOUT_VERIFIED_SPEECH':'TRY_ALTERNATIVE_VIDEO',next_at:new Date().toISOString()});return;
+   }
    await persistCloudAssessment(c,j,assessment,source,parentUrl,r.result);
    await save({status:'completed',error:null});return;
   }
@@ -222,7 +229,7 @@ async function preflightCloudBatch(){
     await save({status:'completed',error:null});
     return;
    }
-   if(job.samples.length>=2&&!job.source)throw Error('NO_SPEECH_AFTER_TWO_SAMPLES');
+   if(job.samples.length>=sampleLimit&&!job.source)throw Error('NO_SPEECH_AFTER_FOUR_SAMPLES');
    const {source,parentUrl}=await discover(creator,job);
    await save({status:'queued',error:'MEDIA_READY',source,parent_url:parentUrl});
   }catch(error){

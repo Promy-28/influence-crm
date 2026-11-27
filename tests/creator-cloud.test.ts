@@ -57,3 +57,14 @@ test('exact TikTok post hydration supplies video only for the matching author an
  assert.deepEqual(socialPostMedia(html('sample.creator','7603898086716378383'),url),[]);
  assert.deepEqual(socialPostMedia(html('sample.creator','7603898086716378382',true),url),[]);
 });
+
+test('Instagram public JSON matches the explicit creator and Reel shortcode',()=>{
+ const source='https://v.cdninstagram.com/media/test.mp4';
+ const html='<script type="application/json">'+JSON.stringify({media:[
+  {code:'ABCdef1234',user:{username:'sample'},video_versions:[{url:source}]},
+  {code:'Unrelated',user:{username:'other'},video_versions:[{url:'https://v.cdninstagram.com/media/other.mp4'}]}
+ ]})+'</script>';
+ assert.deepEqual(publicSocialPosts(html,'https://www.instagram.com/sample/'),['https://www.instagram.com/reel/ABCdef1234/']);
+ assert.deepEqual(socialPostMedia(html,'https://www.instagram.com/sample/reel/ABCdef1234/'),[source]);
+ assert.deepEqual(socialPostMedia(html,'https://www.instagram.com/wrong/reel/ABCdef1234/'),[]);
+});
