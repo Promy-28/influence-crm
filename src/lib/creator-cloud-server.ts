@@ -1,6 +1,7 @@
 import 'server-only';
 import {createHmac,timingSafeEqual} from 'node:crypto';
-import {db} from './db';
+import {all,db} from './db';
+import {syncRedditForm} from './reddit-form-sync';
 import {creatorReviewState} from './creator-progress';
 import {portfolioLinks,embeddedMedia,cloudAssessment,publicSocialPosts,socialPlatform,socialPostMedia,tiktokProfileEmbed,tiktokEmbedPosts} from './creator-cloud-policy';
 import {tiktokPlayer} from './post-preview';
@@ -18,19 +19,49 @@ export async function cloudQueueStatus(){
  const counts={queued:0,processing:0,completed:0,blocked:0};for(const j of jobs.data||[])counts[j.status as keyof typeof counts]++;
  return {ready:true,...control.data,active:control.data.enabled&&(!control.data.until_at||Date.parse(control.data.until_at)>Date.now()),counts,usedThisHour:claims.data?.length||0,hourlyLimit:20,nextHour:new Date(new Date().setUTCMinutes(60,0,0)).toISOString(),activeJobs:(jobs.data||[]).filter(j=>j.status==='processing').map(j=>({id:j.creator_id,stage:Date.parse(j.lease_until||'')>Date.now()?(j.source?'analyzing':'discovering'):'provider_wait',nextAt:j.next_at})),blockers:(jobs.data||[]).filter(j=>j.status==='blocked').slice(0,20).map(({creator_id,status,error,next_at,updated_at})=>({creator_id,status,error,next_at,updated_at}))};
 }
-export async function configureCloudQueue(mode:'day'|'continuous'|'pause'){
- if(!['day','continuous','pause'].includes(mode))throw Error('Invalid queue mode');
- if(mode!=='pause'){
-  const {data,error}=await db.from('reddit_creator_directory').select('*');if(error)throw Error('QUEUE_SOURCE_READ_FAILED');
-  const {data:existing,error:readError}=await db.from('creator_cloud_jobs').select('creator_id,fingerprint,status');if(readError)throw Error('QUEUE_NOT_READY');
-  const byId=new Map<string,any>((existing||[]).map((j:any)=>[j.creator_id,j]));
-  const rows=(data||[]).filter(c=>!['great','maybe','no'].includes(creatorReviewState(c))).filter(c=>!byId.has(c.id)||byId.get(c.id)?.fingerprint!==c.payload.sourceFingerprint).map(c=>({creator_id:c.id,fingerprint:c.payload.sourceFingerprint||null,status:'queued',source:null,parent_url:null,samples:[],error:null,attempts:0,lease_until:null,next_at:new Date().toISOString()}));
-  if(rows.length){const {error:e}=await db.from('creator_cloud_jobs').upsert(rows);if(e)throw Error('QUEUE_SAVE_FAILED')}
-  // A dedicated HMAC, not APP_PASSWORD. Settings is server-only; never return this URL.
-  const {error:e}=await db.from('settings').upsert({key:'creator_cloud_cron_url',value:origin+'/api/creator-review/cloud-tick?token='+token()});if(e)throw Error('QUEUE_CRON_CONFIG_FAILED');
+async function refreshFormIntake(){
+ const key='creator_cloud_last_form_sync';
+ const {data,error}=await db.from('settings').select('value').eq('key',key).maybeSingle();
+ if(error)throw Error('QUEUE_SYNC_STATUS_FAILED');
+ if(Date.now()-Date.parse(data?.value||'')<300000)return;
+ const result=await syncRedditForm();
+ if(!result.conflicts)await db.from('settings').upsert({key,value:new Date().toISOString()});
+}
+
+type CloudIdentity = {creator_id:string; fingerprint:string|null; lease_until:string|null};
+type QueuedJob = CloudIdentity & {status:'queued';source:null;parent_url:null;samples:string[];error:null;attempts:number;next_at:string};
+
+async function enqueueUnreviewedCreators(){
+ const [creators,existing]=await Promise.all([
+  all<any>(async (from,to)=>{
+   const result=await db.from('reddit_creator_directory').select('id,payload,review_pending').order('id').range(from,to);
+   if(result.error)throw Error('QUEUE_SOURCE_READ_FAILED');
+   return result;
+  }),
+  all<CloudIdentity>(async (from,to)=>{
+   const result=await db.from('creator_cloud_jobs').select('creator_id,fingerprint,lease_until').order('creator_id').range(from,to);
+   if(result.error)throw Error('QUEUE_NOT_READY');
+   return result;
+  }),
+ ]);
+ const byId=new Map(existing.map(job=>[job.creator_id,job]));
+ const next_at=new Date().toISOString();
+ const fresh:QueuedJob[]=[];const changed:{row:QueuedJob;old:CloudIdentity}[]=[];
+ for(const creator of creators){
+  if(['great','maybe','no'].includes(creatorReviewState(creator)))continue;
+  const fingerprint=creator.payload.sourceFingerprint||null;
+  const old=byId.get(creator.id);
+  const row:QueuedJob={creator_id:creator.id,fingerprint,status:'queued',source:null,parent_url:null,samples:[],error:null,attempts:0,lease_until:null,next_at};
+  if(!old)fresh.push(row);
+  else if(old.fingerprint!==fingerprint&&!(old.lease_until&&old.lease_until>next_at))changed.push({row,old});
  }
- const at=new Date().toISOString(),{error}=await db.from('creator_cloud_control').update({enabled:mode!=='pause',until_at:mode==='day'?new Date(Date.now()+86400000).toISOString():null,...(mode!=='pause'?{started_at:at}:{}),updated_at:at}).eq('id',true);if(error)throw Error('QUEUE_CONTROL_FAILED');
- return cloudQueueStatus();
+ if(fresh.length)await db.from('creator_cloud_jobs').upsert(fresh,{onConflict:'creator_id',ignoreDuplicates:true});
+ for(const {row,old} of changed){
+  let query=db.from('creator_cloud_jobs').update(row).eq('creator_id',row.creator_id);
+  query=old.fingerprint===null?query.is('fingerprint',null):query.eq('fingerprint',old.fingerprint);
+  query=old.lease_until===null?query.is('lease_until',null):query.eq('lease_until',old.lease_until);
+  await query;
+ }
 }
 async function portfolioHtml(url:string){
  let current=url;
@@ -138,6 +169,8 @@ async function processCloudJob(j:any){
  }catch(e){await save({status:'blocked',error:e instanceof Error?e.message.slice(0,120):'QUEUE_JOB_FAILED',next_at:new Date(Date.now()+86400000).toISOString()})}
 }
 export async function runCloudQueue(){
+ try{await refreshFormIntake()}catch{console.error('creator_cloud_form_sync_failed')}
+ try{await enqueueUnreviewedCreators()}catch{console.error('creator_cloud_enqueue_failed')}
  // Resume file preparation without waiting ten minutes or reuploading the video.
  await db.from('creator_cloud_jobs').update({next_at:new Date().toISOString()}).eq('status','processing').eq('error','processing').gt('next_at',new Date(Date.now()+60000).toISOString());
  // Retry legacy discovery failures once. The new resolver reports different
