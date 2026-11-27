@@ -152,7 +152,7 @@ export async function addCreator(f: FormData) {
   const url = S(f, "url"), email = S(f, "email").toLowerCase();
   const platform = /instagram/i.test(url) ? "instagram" : "tiktok"; const handle = handleKey(url);
   if (!handle || !/@/.test(email)) redirect("/import?msg=Нужны ссылка и почта");
-  await db.from("creators").upsert({ platform, handle, email, email_source: "manual", profile_url: profileUrl(platform, handle), name: S(f, "name") || null, first_name: guessFirstName(S(f, "name")), source: "manual", review_status: "approved", reviewed_by: await requireSession(), reviewed_at: new Date().toISOString() }, { onConflict: "platform,handle" });
+  await db.from("creators").upsert({ platform, handle, email, email_source: "manual", profile_url: profileUrl(platform, handle), name: S(f, "name") || null, first_name: guessFirstName(S(f, "name")), source: "manual", ...(email.endsWith(".invalid") ? { do_not_contact: true } : {}), review_status: "approved", reviewed_by: await requireSession(), reviewed_at: new Date().toISOString() }, { onConflict: "platform,handle" });
   redirect("/import?msg=Добавлен и одобрен");
 }
 
