@@ -17,9 +17,12 @@ export function parseForm(csv:string){
 export function mergeDirectoryPayload(existing:any,incoming:any){
  const merged={...existing,...incoming};if(existing?.browserReview)merged.browserReview=existing.browserReview;
  const cloud=existing?.autonomousReview;
- if(cloud&&cloud.fingerprint===existing.sourceFingerprint&&(!incoming?.assessment?.at||incoming.assessment.at<cloud.at)){Object.assign(merged,{assessment:cloud.assessment,autonomousReview:cloud,reviewStatus:'awaiting_owner',reviewSourceFingerprint:cloud.fingerprint})}
  if(existing?.sheetSnapshot){Object.assign(merged,existing.sheetSnapshot);merged.sheetSnapshot=existing.sheetSnapshot}
- if(merged.sourceFingerprint&&incoming?.reviewSourceFingerprint!==merged.sourceFingerprint)merged.reviewStatus='pending_review';
+ if(cloud?.fingerprint&&cloud.fingerprint===merged.sourceFingerprint){
+  Object.assign(merged,{assessment:cloud.assessment,autonomousReview:cloud,mediaEvidence:existing.mediaEvidence,reviewStatus:existing.reviewStatus==='already_in_instantly'?'already_in_instantly':'awaiting_owner',reviewSourceFingerprint:cloud.fingerprint});
+ }else if(merged.sourceFingerprint&&incoming?.reviewSourceFingerprint!==merged.sourceFingerprint){
+  merged.reviewStatus='pending_review';
+ }
  return merged;
 }
 export function reviewFingerprint(c:any){return createHash('sha256').update(JSON.stringify([c.email,c.owner_rating,c.owner_reason,c.payload?.sourceFingerprint,c.payload?.assessment,c.payload?.reviewStatus,c.review_pending,c.outreach_state])).digest('hex')}
