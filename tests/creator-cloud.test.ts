@@ -47,3 +47,13 @@ test('TikTok profile embed accepts public videos belonging to the submitted hand
  assert.equal(mediaSource(stream,profile),stream);
  assert.throws(()=>mediaSource(stream.replace('tiktokcdn-us.com','unrelated.example'),profile));
 });
+
+test('exact TikTok post hydration supplies video only for the matching author and post',()=>{
+ const url='https://www.tiktok.com/@sample.creator/video/7603898086716378382';
+ const source='https://v16.tiktokcdn-us.com/example.mp4';
+ const html=(name:string,id:string,privateItem=false)=>'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__">'+JSON.stringify({__DEFAULT_SCOPE__:{'webapp.video-detail':{itemInfo:{itemStruct:{id,author:{uniqueId:name},privateItem,video:{playAddr:source}}}}}})+'</script>';
+ assert.deepEqual(socialPostMedia(html('sample.creator','7603898086716378382'),url),[source]);
+ assert.deepEqual(socialPostMedia(html('another.creator','7603898086716378382'),url),[]);
+ assert.deepEqual(socialPostMedia(html('sample.creator','7603898086716378383'),url),[]);
+ assert.deepEqual(socialPostMedia(html('sample.creator','7603898086716378382',true),url),[]);
+});
