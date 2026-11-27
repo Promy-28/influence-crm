@@ -189,14 +189,50 @@ async function processCloudJob(j:any){
    await persistCloudAssessment(c,j,assessment,source,parentUrl,r.result);
    await save({status:'completed',error:null});return;
   }
-  const code=String(r.error||r.status||'MEDIA_UNAVAILABLE').slice(0,120),temporary=code!=='MEDIA_PROVIDER_400'&&(r.deferred||['processing','hourly_limit'].includes(r.status)||response.status>=500||response.status===429);
-  if(['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_SOCIAL_VIDEO_UNAVAILABLE','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO','MEDIA_PROVIDER_400'].includes(code)&&j.samples.length===0){
+  const code=String(r.error||r.status||'MEDIA_UNAVAILABLE').slice(0,120),failedEvidence=['MEDIA_RESULT_INVALID','MEDIA_REVIEW_FAILED','MEDIA_UPLOAD_UNAVAILABLE','MEDIA_FORMAT_UNAVAILABLE'].includes(code), exhaustedEvidence=failedEvidence&&j.error===code&&j.attempts>=3,temporary=code!=='MEDIA_PROVIDER_400'&&!exhaustedEvidence&&(r.deferred||['processing','hourly_limit'].includes(r.status)||response.status>=500||response.status===429);
+  if((exhaustedEvidence||['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_SOCIAL_VIDEO_UNAVAILABLE','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO','MEDIA_PROVIDER_400'].includes(code))&&j.samples.length===0){
    await save({source:null,parent_url:null,samples:[source],status:'queued',error:'TRY_ALTERNATIVE_VIDEO',next_at:new Date().toISOString()});
    return;
   }
   await save({status:temporary?'processing':'blocked',error:code,next_at:new Date(Date.now()+(r.status==='hourly_limit'?3600000:r.status==='processing'?60000:temporary?600000:86400000)).toISOString()});
  }catch(e){await save({status:'blocked',error:e instanceof Error?e.message.slice(0,120):'QUEUE_JOB_FAILED',next_at:new Date(Date.now()+86400000).toISOString()})}
 }
+// Discovery and saved evidence use no video-provider calls. Only a playable
+// candidate moves on to the metered analyzer and its existing hourly claims.
+async function preflightCloudBatch(){
+ const now=new Date().toISOString();
+ const eligible=['RECHECK_SAVED_MEDIA','TRY_ALTERNATIVE_VIDEO','TRY_PUBLIC_SOCIAL_VIDEO','TRY_TIKTOK_PROFILE_EMBED','TRY_CANVA_SITE_VIDEO'];
+ const {data,error}=await db.from('creator_cloud_jobs').select('*')
+  .eq('status','queued').in('error',eligible).lte('next_at',now)
+  .or(`lease_until.is.null,lease_until.lt.${now}`).order('next_at').order('creator_id').limit(8);
+ if(error)throw Error('QUEUE_PREFLIGHT_READ_FAILED');
+ await Promise.allSettled((data||[]).map(async (job:any)=>{
+  const lease=new Date(Date.now()+360000).toISOString();
+  const {data:claimed}=await db.from('creator_cloud_jobs').update({lease_until:lease})
+   .eq('creator_id',job.creator_id).eq('status','queued').eq('updated_at',job.updated_at)
+   .or(`lease_until.is.null,lease_until.lt.${now}`).select('creator_id');
+  if(!claimed?.length)return;
+  const save=async (update:any)=>db.from('creator_cloud_jobs').update({...update,updated_at:new Date().toISOString(),lease_until:null})
+   .eq('creator_id',job.creator_id).eq('lease_until',lease);
+  try{
+   const {data:creator}=await db.from('reddit_creator_directory').select('*').eq('id',job.creator_id).single();
+   if(!creator)throw Error('CREATOR_NOT_FOUND');
+   if((creator.payload.sourceFingerprint||null)!==job.fingerprint)throw Error('SOURCE_CHANGED_REQUEUE_REQUIRED');
+   if(['great','maybe','no'].includes(creatorReviewState(creator))||await recoverAnalyzedSample(creator,job)){
+    await save({status:'completed',error:null});
+    return;
+   }
+   if(job.samples.length>=2&&!job.source)throw Error('NO_SPEECH_AFTER_TWO_SAMPLES');
+   const {source,parentUrl}=await discover(creator,job);
+   await save({status:'queued',error:'MEDIA_READY',source,parent_url:parentUrl});
+  }catch(error){
+   const code=error instanceof Error?error.message:'QUEUE_PREFLIGHT_FAILED';
+   const safeCode=/^[A-Z_0-9]+$/.test(code)?code:'QUEUE_PREFLIGHT_FAILED';
+   await save({status:'blocked',error:safeCode,next_at:new Date(Date.now()+86400000).toISOString()});
+  }
+ }));
+}
+
 export async function runCloudQueue(){
  try{await refreshFormIntake()}catch{console.error('creator_cloud_form_sync_failed')}
  try{await enqueueUnreviewedCreators()}catch{console.error('creator_cloud_enqueue_failed')}
@@ -224,7 +260,8 @@ export async function runCloudQueue(){
  await Promise.all((rejected||[]).map(job=>db.from('creator_cloud_jobs').update({
   status:'queued',error:'TRY_ALTERNATIVE_VIDEO',source:null,parent_url:null,samples:[job.source],next_at:new Date().toISOString()
  }).eq('creator_id',job.creator_id).eq('status','blocked').eq('source',job.source).eq('error',job.error).eq('samples','[]')));
+ const preflight=preflightCloudBatch().catch(()=>console.error('creator_cloud_preflight_failed'));
  const {data:jobs,error}=await db.rpc('claim_creator_cloud_jobs');if(error)throw Error('QUEUE_CLAIM_FAILED');
- await Promise.all((jobs||[]).map(processCloudJob));return {handled:jobs?.length||0,...await cloudQueueStatus()};
+ await Promise.all([preflight,...(jobs||[]).map(processCloudJob)]);return {handled:jobs?.length||0,...await cloudQueueStatus()};
 }
 
