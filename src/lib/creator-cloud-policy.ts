@@ -64,14 +64,31 @@ export function socialPostMedia(html: string, page: string) {
  if (platform === 'tiktok' ? !/^\/@[\w.-]+\/video\/\d+\/?$/.test(url.pathname)
   : platform !== 'instagram' || !/^\/(?:[\w.]+\/)?(?:p|reel|tv)\/[\w-]+\/?$/.test(url.pathname)) return [];
  const sources = new Set<string>();
- for (const match of html.matchAll(/<meta\s[^>]*>/gi)) {
-  const attrs = new Map([...match[0].matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g)].map((m) => [m[1].toLowerCase(), m[3]]));
-  if (!/^og:video(?::(?:url|secure_url))?$/.test(attrs.get('property') || '')) continue;
+ const suffixes = platform === 'instagram' ? ['.cdninstagram.com', '.fbcdn.net'] : ['.tiktokcdn.com', '.tiktokcdn-us.com', '.tiktokcdn-eu.com'];
+ const accept = (value: unknown) => {
+  if (typeof value !== 'string') return;
   try {
-   const source = new URL((attrs.get('content') || '').replace(/&amp;/g, '&'));
-   const suffixes = platform === 'instagram' ? ['.cdninstagram.com', '.fbcdn.net'] : ['.tiktokcdn.com'];
-   if (suffixes.some(suffix => source.hostname.endsWith(suffix))) sources.add(source.href);
-  } catch { continue; }
+   const source = new URL(value.replace(/&amp;/g, '&'));
+   if (source.protocol === 'https:' && !source.username && !source.password && !source.port && suffixes.some(suffix => source.hostname.endsWith(suffix))) sources.add(source.href);
+  } catch { /* Invalid media URL. */ }
+ };
+ if (platform === 'tiktok') {
+  const [account,id] = url.pathname.match(/^\/@([\w.-]+)\/video\/(\d+)\/?$/)!.slice(1);
+  const state=html.match(/<script\b[^>]*\bid=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i)?.[1];
+  if (state) {
+   try {
+    const item=JSON.parse(state)?.__DEFAULT_SCOPE__?.['webapp.video-detail']?.itemInfo?.itemStruct;
+    if (item && (String(item.id)!==id || item.author?.uniqueId?.toLowerCase()!==account.toLowerCase() || item.privateItem===true)) return [];
+    if (item) {
+     accept(item.video?.playAddr);
+     accept(item.video?.downloadAddr);
+    }
+   } catch { /* Try public metadata if the page has no usable state. */ }
+  }
+ }
+ for (const match of html.matchAll(/<meta\s[^>]*>/gi)) {
+  const attrs = new Map([...match[0].matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/g)].map(m => [m[1].toLowerCase(), m[3]]));
+  if (/^og:video(?::(?:url|secure_url))?$/.test(attrs.get('property') || '')) accept(attrs.get('content'));
  }
  return [...sources];
 }

@@ -102,7 +102,12 @@ async function discover(c:any,j:any){
  };
  let discoveryError=links.length?'NO_PUBLIC_VIDEO_DISCOVERED':'NO_CREATOR_VIDEO_LINK';
  let triedTikTokProfile=false;
- for(const p of links){
+ const isSocialPost=(link:string)=>{
+  const url=new URL(link);
+  return Boolean(tiktokPlayer(link)||socialPlatform(url.hostname)==='instagram'&&/\/(?:reel|p|tv)\/[\w-]+/.test(url.pathname));
+ };
+ const socialFirst=[...links].sort((a,b)=>Number(isSocialPost(b))-Number(isSocialPost(a)));
+ for(const p of socialFirst){
   const embed=tiktokProfileEmbed(p);
   if(embed){
    triedTikTokProfile=true;
@@ -119,13 +124,13 @@ async function discover(c:any,j:any){
   try{
    const {html,url}=await portfolioHtml(p);
    const platform=socialPlatform(new URL(url).hostname);
-   const sample=findSample(platform?socialPostMedia(html,url):embeddedMedia(html,url),p);
+   const sample=findSample(platform?socialPostMedia(html,url):embeddedMedia(html,url),platform?url:p);
    if(sample)return sample;
    for(const post of publicSocialPosts(html,url)){
     try{
      const page=await portfolioHtml(post);
      if(new URL(page.url).pathname.replace(/\/$/,'')!==new URL(post).pathname.replace(/\/$/,''))continue;
-     const sample=findSample(socialPostMedia(page.html,page.url),p);
+     const sample=findSample(socialPostMedia(page.html,page.url),page.url);
      if(sample)return sample;
     }catch{ /* Other creator links may still be playable. */ }
    }
@@ -160,8 +165,8 @@ async function processCloudJob(j:any){
    const {data:written,error:e}=await db.from('reddit_creator_directory').update({payload,review_pending:false,updated_at:assessment.at}).eq('id',c.id).eq('updated_at',c.updated_at).select('id');if(e||!written?.length)throw Error('SOURCE_CHANGED_RESULT_NOT_APPLIED');
    await save({status:'completed',error:null});return;
   }
-  const code=String(r.error||r.status||'MEDIA_UNAVAILABLE').slice(0,120),temporary=r.deferred||['processing','hourly_limit'].includes(r.status)||response.status>=500||response.status===429;
-  if(['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_SOCIAL_VIDEO_UNAVAILABLE','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO'].includes(code)&&j.samples.length===0){
+  const code=String(r.error||r.status||'MEDIA_UNAVAILABLE').slice(0,120),temporary=code!=='MEDIA_PROVIDER_400'&&(r.deferred||['processing','hourly_limit'].includes(r.status)||response.status>=500||response.status===429);
+  if(['MEDIA_DRIVE_ACCESS_REQUIRED','MEDIA_SOCIAL_VIDEO_UNAVAILABLE','MEDIA_FILE_SIZE_UNSUPPORTED','MEDIA_LINK_NEEDS_VIDEO','MEDIA_PROVIDER_400'].includes(code)&&j.samples.length===0){
    await save({source:null,parent_url:null,samples:[source],status:'queued',error:'TRY_ALTERNATIVE_VIDEO',next_at:new Date().toISOString()});
    return;
   }
